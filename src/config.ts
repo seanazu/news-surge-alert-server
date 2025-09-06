@@ -6,8 +6,6 @@ const EnvSchema = z.object({
   NEWS_LOOKBACK_MINUTES: z.coerce.number().optional(),
   MARKETAUX_API_KEY: z.string().optional(),
   FMP_API_KEY: z.string().optional(),
-  ALPACA_KEY_ID: z.coerce.string().optional(),
-  ALPACA_SECRET_KEY: z.coerce.string().optional(),
   POLYGON_API_KEY: z.string().optional(),
   DISCORD_BOT_TOKEN: z.string().optional(),
   DISCORD_CHANNEL_ID: z.string().optional(),

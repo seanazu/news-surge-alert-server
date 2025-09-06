@@ -22,10 +22,6 @@ services:
       # choose one realtime source; you can set both
       - key: POLYGON_API_KEY
         sync: false
-      - key: ALPACA_KEY_ID
-        sync: false
-      - key: ALPACA_SECRET_KEY
-        sync: false
 
       # Discord notifications
       - key: DISCORD_BOT_TOKEN
