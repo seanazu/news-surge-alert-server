@@ -1,0 +1,52 @@
+services:
+  - type: worker
+    name: news-surge-realtime
+    runtime: docker
+    plan: starter
+    region: frankfurt # pick close to you
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DB_PATH
+        value: /data/events.db
+
+      # ---- required secrets (set in Render UI or here with sync:false) ----
+      - key: POLYGON_API_KEY
+        sync: false
+      - key: POLYGON_WS_URL
+        value: wss://socket.polygon.io/stocks # realtime (needs SIP agreements)
+        # value: wss://delayed.polygon.io/stocks # delayed fallback/testing
+
+      - key: DISCORD_BOT_TOKEN
+        sync: false
+      - key: DISCORD_CHANNEL_ID
+        sync: false
+
+      - key: MARKETAUX_API_KEY
+        sync: false
+
+      # ---- strategy thresholds / cadence (tune as you like) ----
+      - key: NEWS_LOOKBACK_MINUTES
+        value: "180"
+      - key: POLL_NEWS_SECONDS
+        value: "15"
+      - key: MARKETAUX_PAGE_LIMIT
+        value: "20"
+      - key: MARKETAUX_MAX_PAGES
+        value: "10"
+      - key: MARKETAUX_TIMEOUT_MS
+        value: "15000"
+
+      - key: ALERT_THRESHOLD
+        value: "0.72"
+      - key: VOL_Z_MIN
+        value: "3"
+      - key: RET_1M_MIN
+        value: "0.05"
+      - key: VWAP_DEV_MIN
+        value: "0.02"
+
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB: 1
