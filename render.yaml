@@ -39,21 +39,21 @@ services:
 
       # --- Polling cadence ---
       - key: POLL_NEWS_SECONDS
-        value: "15"
+        sync: false
       - key: NEWS_LOOKBACK_MINUTES
-        value: "60"
+        sync: false
 
       # --- Scoring/Confirmation thresholds ---
       - key: ALERT_THRESHOLD
-        value: "0.72"
+        sync: false
       - key: VOL_Z_MIN
-        value: "3"
+        sync: false
       - key: RET_1M_MIN
-        value: "0.05"
+        sync: false
       - key: VWAP_DEV_MIN
-        value: "0.02"
+        sync: false
       - key: VOL_WINDOW_SIZE
-        value: "60"
+        sync: false
 
       # Optional (uncomment if your code reads them)
       # - key: RISK_PCT
