@@ -2,10 +2,11 @@
 import axios, { AxiosError } from "axios";
 import { cfg } from "../config.js";
 import type { RawItem } from "../types.js";
+import { log } from "../logger.js";
 
 const http = axios.create({
   baseURL: "https://api.marketaux.com/v1",
-  timeout: Number(process.env.MARKETAUX_TIMEOUT_MS ?? 15000), // env override
+  timeout: Number(process.env.MARKETAUX_TIMEOUT_MS ?? 15000),
   headers: { "User-Agent": "news-surge-bot/1.0" },
 });
 
@@ -22,14 +23,33 @@ function fmtISO(d: Date): string {
 
 const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
 
-/** Single page fetch with retries/backoff on timeout/429/5xx. */
+function canonicalUrl(input?: string): string {
+  if (!input) return "";
+  try {
+    const u = new URL(input);
+    u.hash = "";
+    u.search = ""; // drop tracking params
+    // normalize trailing slash and host casing
+    const path = u.pathname.replace(/\/+$/, "");
+    return `${u.protocol}//${u.host.toLowerCase()}${path}`;
+  } catch {
+    // fallback: strip query/hash crudely
+    return String(input).split("#")[0].split("?")[0].replace(/\/+$/, "");
+  }
+}
+
+function normTitle(t?: string): string {
+  return (t || "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+// Single page fetch with retries/backoff on timeout/429/5xx.
 async function fetchPage(
   params: Record<string, any>,
   label: string,
   maxRetries = 3
 ) {
   let attempt = 0;
-  let delay = 900; // ms
+  let delay = 900;
   // eslint-disable-next-line no-constant-condition
   while (true) {
     const t0 = Date.now();
@@ -41,6 +61,7 @@ async function fetchPage(
       );
       return data;
     } catch (e) {
+      log.info("ERROR : ", e);
       const err = e as AxiosError<any>;
       const status = err.response?.status;
       const isTimeout = err.code === "ECONNABORTED";
@@ -72,17 +93,11 @@ async function fetchPage(
 
 /**
  * Fetch all Marketaux news since NEWS_LOOKBACK_MINUTES.
- * - Global firehose (not per-ticker).
- * - Paginates, retries politely, and dedupes.
- *
- * You can override defaults via env:
- *   MARKETAUX_MAX_PAGES (default 5)
- *   MARKETAUX_PAGE_LIMIT (default 50; many plans cap 20–50)
- *   MARKETAUX_TIMEOUT_MS (default 15000)
+ * Global firehose, paginated, retried, and de-duped.
  */
 export async function fetchMarketaux(
-  maxPages = 2,
-  pageLimit = 20
+  maxPages = 1,
+  pageLimit = 10
 ): Promise<RawItem[]> {
   if (!cfg.MARKETAUX_API_KEY) return [];
 
@@ -97,6 +112,7 @@ export async function fetchMarketaux(
   });
 
   const out: RawItem[] = [];
+  const seen = new Set<string>(); // dedupe as we go
   let page = 1;
 
   while (page <= maxPages) {
@@ -105,15 +121,12 @@ export async function fetchMarketaux(
         {
           api_token: cfg.MARKETAUX_API_KEY,
           language: "en",
-          filter_entities: true,
-          entity_types: "equity", // keep results equity-focused
-          published_after,
+          entity_types: "equity",
+          symbols: "OCTO,RAPP,FORD,DNTH,HOUR",
+          sort: "published_on",
+          published_before: fmtISO(new Date(Date.now())),
           limit: pageLimit,
           page,
-          // Optional: countries: "us,ca",
-          // Optional: industries: "Technology,Healthcare,Consumer,Energy,Financial",
-          // Optional: sentiment_gte: "0.7",
-          // Optional: keywords: "undervalued",
         },
         `page#${page}`
       );
@@ -135,6 +148,11 @@ export async function fetchMarketaux(
           a.publishedAt ||
           new Date().toISOString();
 
+        const url = canonicalUrl(a.url);
+        const title = a.title || "";
+        const titleNorm = normTitle(title);
+
+        // symbols
         const symbols: string[] = (a?.entities || [])
           .filter(
             (e: any) =>
@@ -143,10 +161,18 @@ export async function fetchMarketaux(
           )
           .map((e: any) => String(e.symbol || e.ticker).toUpperCase());
 
+        // Stable key: prefer URL; fallback to (title+date+source)
+        const key = url || `${titleNorm}|${publishedAt.slice(0, 19)}|marketaux`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+
+        // id also prefers URL for cross-run stability
+        const id = a.uuid || url || `${title}-${publishedAt}`;
+
         out.push({
-          id: a.uuid || a.url || a.title || publishedAt,
-          url: a.url,
-          title: a.title || "",
+          id,
+          url: url || a.url, // keep original if canonicalization failed
+          title,
           summary: a.description || a.snippet || "",
           source: "marketaux",
           publishedAt,
@@ -154,13 +180,10 @@ export async function fetchMarketaux(
         });
       }
 
-      // stop early if fewer than requested (last page)
-      if (items.length < pageLimit) break;
-
+      if (items.length < pageLimit) break; // likely last page
       page += 1;
-      await sleep(150); // polite pause
-    } catch (err) {
-      // If a page fails permanently, stop paginating to avoid loops
+      await sleep(150);
+    } catch {
       console.warn(
         new Date().toISOString(),
         "[Marketaux] abort pagination after error on page",
@@ -170,19 +193,10 @@ export async function fetchMarketaux(
     }
   }
 
-  // basic dedupe by id
-  const seen = new Set<string>();
-  const deduped: RawItem[] = [];
-  for (const it of out) {
-    if (seen.has(it.id)) continue;
-    seen.add(it.id);
-    deduped.push(it);
-  }
-
   console.info(
     new Date().toISOString(),
-    "[Marketaux] total items after paginate+dedupe:",
-    deduped.length
+    "[Marketaux] total items:",
+    out.length
   );
-  return deduped;
+  return out;
 }

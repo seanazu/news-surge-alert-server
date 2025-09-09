@@ -1,6 +1,16 @@
+// src/pipeline/classify.ts
+// Hardened, dependency-free rules tuned from your examples and numbers file.
+// Blocks: proxy-advisor recs, law-firm “deadline alerts,” awards/celebrations,
+// cybersecurity-incident updates, investor-conference participation,
+// and plain “financial results” with no beat/raise.
+// Treats Russell joins as low-signal (scored as minor downstream).
+// Allows: crypto-treasury buys/pivots & large treasury-discussions (even without a capital raise);
+// definitive M&A even off-wire when per-share/valuation is present;
+// Tier-1 “signed/enters into/inks agreement/contract/MOU,” even off-wire.
+
 import type { RawItem, ClassifiedItem, EventClass } from "../types.js";
 
-/** Events most often behind ≥50% single-day pops. */
+/** Events commonly behind ≥40–50% single-day pops. */
 export type HighImpactEvent =
   | "PIVOTAL_TRIAL_SUCCESS"
   | "FDA_MARKETING_AUTH"
@@ -8,28 +18,30 @@ export type HighImpactEvent =
   | "REGULATORY_DESIGNATION"
   | "TIER1_PARTNERSHIP"
   | "MAJOR_GOV_CONTRACT"
+  | "GOVERNMENT_EQUITY_OR_GRANT"
   | "ACQUISITION_BUYOUT"
   | "IPO_DEBUT_POP"
   | "COURT_WIN_INJUNCTION"
   | "MEME_OR_INFLUENCER"
   | "RESTRUCTURING_OR_FINANCING"
   | "POLICY_OR_POLITICS_TAILWIND"
+  | "EARNINGS_BEAT_OR_GUIDE_UP"
+  | "INDEX_INCLUSION"
+  | "UPLISTING_TO_NASDAQ"
   | "OTHER";
 
-/** Tier-1 counterparties that commonly cause step-function repricing. */
-/** Tier-1 counterparties that commonly cause step-function repricing. */
-export const TIER1_COUNTERPARTIES: string[] = [
-  // === Big Tech / Hyperscalers ===
+/** Tier-1 counterparties (exact list you provided). */
+const TIER1_COUNTERPARTIES: string[] = [
   "Nvidia",
   "Microsoft",
   "OpenAI",
   "Apple",
   "Amazon",
-  "AWS", // alias of Amazon
+  "AWS",
   "Google",
-  "Alphabet", // alias of Google
+  "Alphabet",
   "Meta",
-  "Facebook", // alias of Meta
+  "Facebook",
   "Tesla",
   "Oracle",
   "Salesforce",
@@ -49,8 +61,6 @@ export const TIER1_COUNTERPARTIES: string[] = [
   "Palantir",
   "Siemens",
   "Sony",
-
-  // === Enterprise SaaS / Cloud ===
   "Workday",
   "ServiceNow",
   "Shopify",
@@ -64,9 +74,7 @@ export const TIER1_COUNTERPARTIES: string[] = [
   "Cloudflare",
   "Stripe",
   "Block",
-  "Square", // alias of Block
-
-  // === Retail / Distribution ===
+  "Square",
   "Walmart",
   "Target",
   "Costco",
@@ -77,12 +85,10 @@ export const TIER1_COUNTERPARTIES: string[] = [
   "Tencent",
   "JD.com",
   "ByteDance",
-  "TikTok", // alias of ByteDance
-
-  // === Defense / Aerospace / Space ===
+  "TikTok",
   "Lockheed Martin",
   "Raytheon",
-  "RTX", // alias of Raytheon
+  "RTX",
   "Boeing",
   "Northrop Grumman",
   "General Dynamics",
@@ -93,23 +99,21 @@ export const TIER1_COUNTERPARTIES: string[] = [
   "SpaceX",
   "NASA",
   "Space Force",
-  "USSF", // alias of Space Force
+  "USSF",
   "DARPA",
   "Department of Defense",
-  "DoD", // alias of Department of Defense
+  "DoD",
   "Army",
   "Navy",
   "Air Force",
-
-  // === Pharma / Biotech Mega-caps ===
   "Pfizer",
   "Merck",
   "Johnson & Johnson",
-  "J&J", // alias of Johnson & Johnson
+  "J&J",
   "Bristol-Myers",
-  "BMS", // alias of Bristol-Myers
+  "BMS",
   "Eli Lilly",
-  "Lilly", // alias of Eli Lilly
+  "Lilly",
   "Sanofi",
   "GSK",
   "AstraZeneca",
@@ -123,8 +127,6 @@ export const TIER1_COUNTERPARTIES: string[] = [
   "Gilead",
   "Biogen",
   "Regeneron",
-
-  // === Healthcare / Medtech ===
   "Medtronic",
   "Boston Scientific",
   "Abbott",
@@ -132,8 +134,6 @@ export const TIER1_COUNTERPARTIES: string[] = [
   "Philips",
   "Siemens Healthineers",
   "Intuitive Surgical",
-
-  // === Government / Coverage Bodies ===
   "BARDA",
   "HHS",
   "NIH",
@@ -145,8 +145,6 @@ export const TIER1_COUNTERPARTIES: string[] = [
   "EC",
   "MHRA",
   "PMDA",
-
-  // === Energy / Industrials ===
   "ExxonMobil",
   "Chevron",
   "BP",
@@ -160,262 +158,320 @@ export const TIER1_COUNTERPARTIES: string[] = [
   "Honeywell",
 ];
 
-/** Regex library for key catalysts. */
-const PATTERNS = {
-  // Bio/med
-  pivotalTrialSuccess: [
-    /\b(phase\s*(III|3)|late-?stage)\b.*\b(top-?line|primary endpoint (met|achieved|success)|statistically significant|superior|non-?inferior)\b/i,
-    /\b(pivotal|registrational)\b.*\b(success|met|positive|statistically significant)\b/i,
-  ],
-  fdaMarketingAuth: [
-    /\b(FDA|EMA|EC|MHRA|PMDA)\b.*\b(approval|approves|authorized|authorization|clearance|clears|EUA|marketing authorization)\b/i,
-    /\b(CE[- ]mark|CE[- ]marking|CE[- ]certificate)\b.*\b(approval|granted|obtained)\b/i,
-  ],
-  fdaAdcomPositive: [
-    /\b(advisory (committee|panel)|AdCom)\b.*\b(votes?|voted|recommend(s|ed))\b.*\b(favor|positive|approval)\b/i,
-    /\b(panel votes?\s*(\d{1,2}-\d{1,2})\s*(in favor|to recommend))\b/i,
-  ],
-  regulatoryDesignation: [
-    /\b(RMAT|breakthrough (therapy )?designation|BTD|fast[- ]track|orphan (drug )?designation|PRIME status)\b/i,
-  ],
+/* ---------- Utils ---------- */
+const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const normalize = (s: string) =>
+  (s || "")
+    .replace(/\s+/g, " ")
+    .replace(/[“”]/g, '"')
+    .replace(/[’‘]/g, "'")
+    .replace(/\u2011|\u2013|\u2014/g, "-")
+    .trim();
 
-  // Commercial/government proof
-  tier1Partnership: [
-    new RegExp(
-      `\\b(${TIER1_COUNTERPARTIES.map((n) =>
-        n.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")
-      ).join(
-        "|"
-      )})\\b.*\\b(partnership|agreement|collaboration|acquire|alliance|deal|licensing|contract|supply|distribution|integration|deployment)\\b`,
-      "i"
-    ),
-  ],
-  majorGovContract: [
-    /\b(NASA|USSF|Space Force|DoD|Department of Defense|Army|Navy|Air Force|DARPA|BARDA|HHS|NIH|CMS|Medicare|VA)\b.*\b(contract|award|task order|IDIQ|grant|funding|coverage|reimbursement|NCD|LCD)\b/i,
-    /\b(contract award(ed)?|IDIQ|\$?\d{2,4}\s*(million|billion)\s*(contract|order|award))\b/i,
-  ],
+const TIER1_RX = new RegExp(
+  `\\b(?:${TIER1_COUNTERPARTIES.map(esc).join("|")})(?:'s)?\\b`,
+  "i"
+);
 
-  // Corporate — M&A (more granular)
-  mnaBuyoutGeneric: [
-    /\b(definitive (merger|agreement)|to\s+be\s+acquired|acquire|acquisition|buyout|take[- ]private|go[- ]private|merger)\b/i,
-  ],
-  mnaDefinitive: [
-    /\b(definitive (merger|agreement|deal)|merger agreement (executed|signed)|entered into (a )?definitive (agreement|merger))\b/i,
-  ],
-  mnaTenderOffer: [
-    /\b(tender offer|exchange offer|commence(s|d)? (an )?offer)\b/i,
-  ],
-  mnaRevisedOrSweetened: [
-    /\b(revise[sd]?|increase[sd]?|raise[sd]?|sweeten(?:s|ed)?|ups?)\b.*\b(offer|bid|proposal|consideration|purchase price)\b/i,
-    /\b(offer|bid|proposal)\b.*\b(revise[sd]?|increase[sd]?|sweeten(?:s|ed)?|higher)\b/i,
-  ],
-  mnaCashAndStock: [
-    /\bcash\s*(?:&|and|\/)\s*stock\b/i,
-    /\b(cash-and-stock|stock-and-cash)\b/i,
-  ],
-  mnaPerSharePrice: [/\$\s?\d+(?:\.\d+)?\s*(?:per|\/)\s*share\b/i],
-  mnaNonBinding: [
-    /\b(non[- ]binding|indicative)\b.*\b(offer|proposal|LOI|letter of intent)\b/i,
-  ],
-  mnaNegative: [
-    /\b(terminates?|terminated|ends|walks away|withdraws?)\b.*\b(merger|deal|agreement|offer|bid)\b/i,
-    /\b(rejects?|rejected|declines?)\b.*\b(offer|proposal|bid)\b/i,
-    /\b(reduce[sd]?|lower[sd]?)\b.*\b(offer|bid|proposal|consideration)\b/i,
-  ],
+/** “True PR” gate: major wire hosts or boilerplate tokens; allow issuer IR. */
+const WIRE_HOSTS = new Set([
+  "www.prnewswire.com",
+  "www.globenewswire.com",
+  "www.businesswire.com",
+  "www.accesswire.com",
+  "www.newsfilecorp.com",
+]);
+const WIRE_TOKENS = [
+  "PR Newswire",
+  "GlobeNewswire",
+  "Business Wire",
+  "ACCESSWIRE",
+  "Newsfile",
+];
+function isWirePR(url?: string, text?: string): boolean {
+  const t = normalize(text || "");
+  try {
+    if (url) {
+      const host = new URL(url).hostname.toLowerCase();
+      if (WIRE_HOSTS.has(host)) return true;
+      // allow common issuer IR subdomains
+      if (/^(ir|investors)\./i.test(host)) return true;
+    }
+  } catch {}
+  return WIRE_TOKENS.some((tok) => t.includes(tok));
+}
 
-  // Corporate/other
-  ipoDebut: [
-    /\b(IPO|debut|lists?|first day of trading)\b.*\b(soar|surge|rall(y|ies)|jumps?|more than (double|doubled))\b/i,
-  ],
-  restructuringOrFinancing: [
-    /\b(debt (restructuring|refinancing|forbearance)|going[- ]concern (removed|resolved)|new (financing|credit facility|investment)|exchange (offer|agreement))\b/i,
-  ],
+/* ---------- Patterns ---------- */
+const PAT = {
+  // Bio
+  pivotal:
+    /\b(phase\s*(iii|3)|pivotal|registrational)\b.*\b(success|met (?:the )?primary endpoint|statistically significant)\b/i,
+  topline:
+    /\b(top-?line)\b.*\b(positive|met (?:the )?primary endpoint|statistically significant)\b/i,
+  adcom:
+    /\b(advisory (committee|panel)|adcom)\b.*\b(vote|voted|recommends?)\b/i,
+  approval:
+    /\b(FDA|EMA|EC|MHRA|PMDA)\b.*\b(approved?|approval|authorized|authorization|clearance|clears|EUA|510\(k\))\b/i,
+  designation:
+    /\b(breakthrough therapy|BTD|fast[- ]track|orphan (drug )?designation|PRIME|RMAT)\b/i,
 
-  // Legal / sentiment / policy
-  courtWinOrInjunction: [
-    /\b(court|appeals? court|judge|ITC|PTAB)\b.*\b(grants?|granted|wins?|overturns?|injunction|stays?|vacates?|favorable (ruling|decision))\b/i,
-    /\b(settlement|license agreement)\b.*\b(dispute|litigation|lawsuit|patent)\b/i,
-  ],
-  memeOrInfluencer: [
-    /\b(Roaring Kitty|Keith Gill|meme stock|wallstreetbets|WSB|short squeeze|halted for volatility)\b/i,
-    /\b(Nvidia|OpenAI)\b.*\b(mentions?|blog|keynote|featured)\b/i,
-  ],
-  policyOrPoliticsTailwind: [
-    /\b(White House|president|FCC|FTC|DoJ|tariff|policy|regulator|court|injunction|settlement)\b.*\b(approv|rules?|grants?|lifts|exempts?)\b/i,
-  ],
+  // M&A (binding allowed off-wire if definitive + price/value present)
+  mnaBinding:
+    /\b(definitive (agreement|merger)|merger agreement (executed|signed)|entered into (a )?definitive (agreement|merger)|business combination|to be acquired|take[- ]private|go[- ]private|acquisition|buyout|tender|exchange offer)\b/i,
+  mnaWillAcquire: /\b(will|to)\s+acquire\b|\bto be acquired\b/i,
+  mnaPerShareOrValue:
+    /\$\s?\d+(?:\.\d+)?\s*(?:per|\/)\s*share\b|(?:deal|transaction|enterprise|equity)\s+value(?:d)?\s+at\s+\$?\d+(?:\.\d+)?\s*(?:million|billion|bn|mm|m)\b/i,
+  mnaNonBinding: /\b(non[- ]binding|indicative|letter of intent|LOI)\b/i,
+  mnaAdminOnly: /\b(extend(s|ed|ing)?|extension)\b.*\b(tender offer|offer)\b/i,
+  mnaAssetOrProperty:
+    /\b(divestiture|asset sale|dispos(?:e|al)|acquisition of (?:property|facility|real estate|inpatient rehabilitation))\b/i,
+
+  // Partnerships / contracts
+  partnershipAny:
+    /\b(partner(ship)?|strategic (?:alliance|partnership)|collaborat(?:e|ion)|distribution|licen[cs]e|supply|integration|deployment)\b/i,
+  dealSigned:
+    /\b(signed|signs|inks?|enters? into)\b.*\b(agreement|deal|contract|MOU|memorandum of understanding)\b/i,
+  contractAny: /\b(contract|award|task order|IDIQ|grant|funding)\b/i,
+  govWords:
+    /\b(NASA|USSF|Space Force|DoD|Department of Defense|Army|Navy|Air Force|DARPA|BARDA|HHS|NIH|CMS|Medicare|VA)\b/i,
+  govEquity:
+    /\b(?:government|DoD|Department of Defense|HHS|BARDA)\b.*\b(preferred (stock|equity)|equity|investment|warrants?)\b/i,
+
+  // Corporate / other
+  earningsBeatGuideUp:
+    /\b(raises?|increas(?:es|ed)|hikes?)\b.*\b(guidance|outlook|forecast)\b|\b(beat[s]?)\b.*\b(consensus|estimates|Street|expectations)\b/i,
+  indexInclusion:
+    /\b(added|to be added|to join|inclusion|included)\b.*\b(Russell\s?(2000|3000)|MSCI|S&P\s?(500|400|600)|S&P Dow Jones Indices|FTSE)\b/i,
+  uplist:
+    /\b(uplisting|uplist|approved to list)\b.*\b(Nasdaq|NYSE|NYSE American)\b/i,
+
+  // Legal / meme
+  courtWin:
+    /\b(court|judge|ITC|PTAB)\b.*\b(grants?|wins?|injunction|vacates?|stays?)\b/i,
+  memeOrInfluencer:
+    /\b(Roaring Kitty|Keith Gill|meme stock|wallstreetbets|WSB|short squeeze|Jensen Huang|Nvidia (blog|mention))\b/i,
+
+  // Name-drop only context
+  nameDropContext:
+    /\b(mention(?:ed)?|blog|keynote|showcase|featured|ecosystem|catalog|marketplace)\b/i,
+
+  // Low-impact cohorts to hard-block
+  proxyAdvisor:
+    /\b(ISS|Institutional Shareholder Services|Glass Lewis)\b.*\b(recommend(s|ed)?|support(s|ed)?)\b.*\b(vote|proposal|deal|merger)\b/i,
+  voteAdminOnly:
+    /\b(definitive proxy|proxy (statement|materials)|special meeting|annual meeting|extraordinary general meeting|EGM|shareholder vote|record date)\b/i,
+  lawFirmPR:
+    /\b(class action|securities class action|investor (?:lawsuit|alert|reminder)|deadline alert|shareholder rights law firm|securities litigation|investigat(?:ion|ing)|Hagens Berman|Pomerantz|Rosen Law Firm|Glancy Prongay|Bronstein[, ]+Gewirtz|Kahn Swick|Saxena White|Kessler Topaz|Levi & Korsinsky)\b/i,
+  awardsPR:
+    /\b(award|awards|winner|wins|finalist|recipient|honoree|recognized|recognition|named (?:as|to) (?:the )?(?:list|index|ranking)|anniversary|celebrat(es|ing|ion)|Respect the Drive)\b/i,
+  securityIncidentUpdate:
+    /\b(cyber(?:security)?|security|ransomware|data (?:breach|exposure)|cyber[- ]?attack)\b.*\b(update|updated|provid(?:e|es)d? an? update)\b/i,
+  investorConfs:
+    /\b(participat(e|es|ing)|to participate|will participate)\b.*\b(investor (?:conference|conferences)|conference|fireside chat|non-deal roadshow)\b/i,
+
+  // Generic “financial results” text (suppressed unless beat/raise matches above)
+  financialResultsOnly:
+    /\b(financial results|first quarter|second quarter|third quarter|fourth quarter|first half|second half|H1|H2|fiscal (?:Q\d|year) results)\b/i,
+
+  // Financing / dilution guards
+  shelfOrATM:
+    /\b(Form\s*S-3|shelf registration|at[- ]the[- ]market|ATM (program|facility))\b/i,
+  plainDilution:
+    /\b(securities purchase agreement|registered direct|PIPE|private placement|unit financing|equity offering|warrants?)\b/i,
+
+  // Misc noise (kept for completeness & parity with scorer)
+  strategicAlts:
+    /\b(explore|evaluat(?:e|ing)|commence(?:s|d)?)\b.*\b(strategic alternatives|strategic review)\b/i,
+  conferenceOnly:
+    /\b(presents?|to present|poster|abstract|oral presentation|fireside chat|non-deal roadshow|conference|corporate update)\b/i,
+  upcomingOnly:
+    /\b(KOL|key opinion leader)\b.*\b(event|webcast|call)\b|\b(upcoming|will (announce|report)|to (announce|report))\b.*\b(data|results|top-?line)\b/i,
+  analystMedia:
+    /\b(says|said|told|interview)\b.*\b(CNBC|Yahoo Finance|Bloomberg|Fox Business|Barron'?s)\b/i,
+  bidAuction:
+    /\b(bid|proposal)\b.*\b(auction|court[- ]supervised|bankruptcy)\b/i,
+  govRoutine:
+    /\b(continued production|follow[- ]on|option (exercise|exercised)|extension|renewal)\b/i,
+  typoErratum: /\b(typo|erratum|correction|corrects|amended release)\b/i,
+
+  // Crypto / treasury catalysts
+  cryptoTreasuryBuy:
+    /\b(buy|bought|purchase[sd]?|acquire[sd]?)\b.*\b(Bitcoin|BTC|Ethereum|ETH|Solana|SOL|LINK|Chainlink|crypto(?:currency)?|tokens?)\b/i,
+  cryptoTreasuryDiscuss:
+    /\b(treasury|reserve|policy|program|strategy)\b.*\b(discuss(?:ions?)?|approached|proposal|term sheet|non[- ]binding|indicative)\b.*\b(\$?\d+(?:\.\d+)?\s*(?:million|billion|bn|mm|m))\b/i,
 };
 
-/** Boosters / guards */
-const LARGE_DOLLAR_AMOUNT = /\$?\s?(?:\d{2,4})\s*(?:million|billion)\b/i; // $10M–$9B
-const SUPERLATIVE_MOVE_WORD =
-  /\b(soar|surge|jump|rall(y|ies)|rocket|double|doubled|triple|tripled)\b/i;
+const LARGE_DOLLARS = /\$?\s?(?:\d{2,4})\s*(?:million|billion|bn|mm|m)\b/i;
+const SCALE =
+  /\b(multi[- ]year|nationwide|global|enterprise[- ]wide|rollout)\b/i;
 
-const FALSE_POSITIVE_GUARDS = [
-  /\b(shareholder|board|committee)\s+(approval|approved)\b/i, // governance approvals
-  /\b(ATM|at-the-market|warrants?|reverse split|compliance|Nasdaq notice)\b/i, // financing/listing noise
-  /\b(customs clearance|port clearance)\b/i,
-  /\b(memorandum of understanding|MOU)\b/i, // too soft
-];
+type ScoreHit = { label: HighImpactEvent; w: number; why: string };
 
-/** Negative M&A news wipes score to zero. */
-const MNA_NEGATION = (text: string) =>
-  PATTERNS.mnaNegative.some((r) => r.test(text));
+function classifyOne(it: RawItem): { event: HighImpactEvent; score: number } {
+  const title = normalize(it.title || "");
+  const body = normalize(it.summary || "");
+  const x = `${title}\n${body}`;
+  const url = (it as any).url as string | undefined;
 
-type ScoreHit = { label: HighImpactEvent; weight: number; evidence: string };
+  // --- Hard guards / early exits ---
+  if (PAT.securityIncidentUpdate.test(x)) return { event: "OTHER", score: 0 };
+  if (PAT.awardsPR.test(x)) return { event: "OTHER", score: 0 };
+  if (
+    (PAT.proxyAdvisor.test(x) || PAT.voteAdminOnly.test(x)) &&
+    !PAT.mnaBinding.test(x)
+  )
+    return { event: "OTHER", score: 0 };
+  if (PAT.investorConfs.test(x)) return { event: "OTHER", score: 0 };
+  if (PAT.lawFirmPR.test(x)) return { event: "OTHER", score: 0 };
+  if (PAT.shelfOrATM.test(x)) return { event: "OTHER", score: 0 };
+  if (PAT.analystMedia.test(x)) return { event: "OTHER", score: 0 };
+  if (PAT.typoErratum.test(x)) return { event: "OTHER", score: 0 };
 
-/** Classify a single headline+body and produce (event, score, reasons). */
-function classifyNewsItem(
-  title: string,
-  body: string
-): { event: HighImpactEvent; score: number; reasons: string[] } {
-  const text = `${title}\n${body}`;
+  // Plain dilution (unless premium/strategic) → near zero
+  if (
+    PAT.plainDilution.test(x) &&
+    !/premium|above[- ]market|strategic investor/i.test(x)
+  )
+    return { event: "OTHER", score: 0.1 };
 
-  if (FALSE_POSITIVE_GUARDS.some((r) => r.test(text))) {
-    return { event: "OTHER", score: 0, reasons: ["negation_guard"] };
-  }
-  if (MNA_NEGATION(text)) {
-    // Terminated/rejected/withdrawn offers should not trigger alerts.
-    return { event: "OTHER", score: 0, reasons: ["mna_negative"] };
-  }
-
+  const isPR = isWirePR(url, x);
   const hits: ScoreHit[] = [];
   const push = (
     ok: boolean,
     label: HighImpactEvent,
-    weight: number,
-    evidence: string
+    w: number,
+    why: string
   ) => {
-    if (ok) hits.push({ label, weight, evidence });
+    if (ok) hits.push({ label, w, why });
   };
 
-  // Core medical/regulatory
-  push(
-    PATTERNS.pivotalTrialSuccess.some((r) => r.test(text)),
-    "PIVOTAL_TRIAL_SUCCESS",
-    10,
-    "pivotal_trial"
-  );
-  push(
-    PATTERNS.fdaMarketingAuth.some((r) => r.test(text)),
-    "FDA_MARKETING_AUTH",
-    10,
-    "fda_auth"
-  );
-  push(
-    PATTERNS.fdaAdcomPositive.some((r) => r.test(text)),
-    "FDA_ADCOM_POSITIVE",
-    8,
-    "adcom_positive"
-  );
-  push(
-    PATTERNS.regulatoryDesignation.some((r) => r.test(text)),
-    "REGULATORY_DESIGNATION",
-    6,
-    "designation"
-  );
+  // --- Positive rules ---
 
-  // Commercial/government proof
-  push(
-    PATTERNS.tier1Partnership.some((r) => r.test(text)),
-    "TIER1_PARTNERSHIP",
-    8,
-    "tier1_partner"
-  );
-  push(
-    PATTERNS.majorGovContract.some((r) => r.test(text)),
-    "MAJOR_GOV_CONTRACT",
-    8,
-    "gov_contract"
-  );
-
-  // Corporate/legal/sentiment
-  const mnaGeneric = PATTERNS.mnaBuyoutGeneric.some((r) => r.test(text));
-  push(mnaGeneric, "ACQUISITION_BUYOUT", 9, "mna_buyout");
-
-  // M&A specificity boosters (don’t change the event label, just the score)
-  const hasDefinitive = PATTERNS.mnaDefinitive.some((r) => r.test(text)); // big boost
-  const hasTender = PATTERNS.mnaTenderOffer.some((r) => r.test(text));
-  const hasRevised = PATTERNS.mnaRevisedOrSweetened.some((r) => r.test(text)); // e.g., “sweetens offer”
-  const hasCashAndStock = PATTERNS.mnaCashAndStock.some((r) => r.test(text));
-  const hasPerSharePrice = PATTERNS.mnaPerSharePrice.some((r) => r.test(text));
-  const isNonBinding = PATTERNS.mnaNonBinding.some((r) => r.test(text));
-
-  // Other events
-  push(
-    PATTERNS.ipoDebut.some((r) => r.test(text)),
-    "IPO_DEBUT_POP",
-    7,
-    "ipo"
-  );
-  push(
-    PATTERNS.courtWinOrInjunction.some((r) => r.test(text)),
-    "COURT_WIN_INJUNCTION",
-    7,
-    "court_win"
-  );
-  push(
-    PATTERNS.restructuringOrFinancing.some((r) => r.test(text)),
-    "RESTRUCTURING_OR_FINANCING",
-    5,
-    "restructuring"
-  );
-  push(
-    PATTERNS.memeOrInfluencer.some((r) => r.test(text)),
-    "MEME_OR_INFLUENCER",
-    6,
-    "meme_influencer"
-  );
-  push(
-    PATTERNS.policyOrPoliticsTailwind.some((r) => r.test(text)),
-    "POLICY_OR_POLITICS_TAILWIND",
-    4,
-    "policy"
-  );
-
-  if (!hits.length) return { event: "OTHER", score: 0, reasons: [] };
-
-  // Aggregate by label
-  const byLabel = new Map<HighImpactEvent, number>();
-  const reasons: string[] = [];
-  for (const h of hits) {
-    byLabel.set(h.label, (byLabel.get(h.label) ?? 0) + h.weight);
-    reasons.push(h.evidence);
+  // Bio / regulatory (wire preferred)
+  if (isPR) {
+    push(PAT.approval.test(x), "FDA_MARKETING_AUTH", 10, "approval");
+    push(PAT.adcom.test(x), "FDA_ADCOM_POSITIVE", 8, "adcom_positive");
+    push(
+      PAT.pivotal.test(x) || PAT.topline.test(x),
+      "PIVOTAL_TRIAL_SUCCESS",
+      9,
+      "pivotal_or_topline"
+    );
+    push(PAT.designation.test(x), "REGULATORY_DESIGNATION", 6, "designation");
   }
-  let [bestEvent, bestScore] = [...byLabel.entries()].sort(
-    (a, b) => b[1] - a[1]
-  )[0];
 
-  // --- combo & specificity bonuses (emphasize 50%+ movers) ---
-  const labels = new Set(hits.map((h) => h.label));
-  if (labels.has("PIVOTAL_TRIAL_SUCCESS") && labels.has("FDA_MARKETING_AUTH"))
-    bestScore += 3;
-  if (labels.has("TIER1_PARTNERSHIP") && labels.has("MAJOR_GOV_CONTRACT"))
-    bestScore += 2;
-  if (labels.has("ACQUISITION_BUYOUT")) {
-    // M&A gradient of certainty/value delivery:
-    if (hasDefinitive) bestScore += 3; // signed deal
-    if (hasTender) bestScore += 2; // formal offer mechanism
-    if (hasRevised) bestScore += 2; // “sweetened/increased” -> target pops
-    if (hasCashAndStock) bestScore += 1; // cash component tends to reprice faster
-    if (hasPerSharePrice) bestScore += 1; // explicit per-share consideration
-    if (isNonBinding) bestScore -= 3; // LOI-only = softer
-    bestScore += 2; // base takeout premium (kept from your original logic)
+  // M&A: allow off-wire if definitive language + per-share/valuation present
+  {
+    const binding =
+      PAT.mnaBinding.test(x) ||
+      (PAT.mnaWillAcquire.test(x) && PAT.mnaPerShareOrValue.test(x));
+    const nonbind = PAT.mnaNonBinding.test(x);
+    const admin = PAT.mnaAdminOnly.test(x);
+    const asset = PAT.mnaAssetOrProperty.test(x);
+    push(
+      binding && !nonbind && !admin && !asset,
+      "ACQUISITION_BUYOUT",
+      9,
+      "mna_binding"
+    );
+    if (nonbind || admin || asset) push(true, "OTHER", 2, "mna_low_impact");
   }
+
+  // Gov / partnerships (Tier-1 deal can pass off-wire if signed/inked/enters into)
+  {
+    const govContract = PAT.govWords.test(x) && PAT.contractAny.test(x);
+    const govEquity = PAT.govEquity.test(x);
+    const isPartnership =
+      PAT.partnershipAny.test(x) ||
+      PAT.contractAny.test(x) ||
+      PAT.dealSigned.test(x);
+    const hasTier1 = TIER1_RX.test(x);
+    const hasScale = LARGE_DOLLARS.test(x) || SCALE.test(x);
+
+    if (isPR && govContract && !PAT.govRoutine.test(x))
+      push(true, "MAJOR_GOV_CONTRACT", 8, "gov_contract");
+    if (isPR && govContract && PAT.govRoutine.test(x))
+      push(true, "OTHER", 2, "gov_routine");
+    push(govEquity, "GOVERNMENT_EQUITY_OR_GRANT", 9, "gov_equity");
+
+    const nameDropOnly =
+      hasTier1 && PAT.nameDropContext.test(x) && !isPartnership;
+    if (isPartnership && (hasTier1 || hasScale) && !nameDropOnly)
+      push(
+        true,
+        "TIER1_PARTNERSHIP",
+        hasTier1 ? 8 : 6,
+        hasTier1 ? "tier1" : "scale"
+      );
+    if (!isPartnership && nameDropOnly)
+      push(true, "MEME_OR_INFLUENCER", 4, "tier1_name_drop_only");
+  }
+
+  // Corporate (earnings require beat/raise tokens; Russell will be minor in scorer)
+  {
+    push(
+      PAT.earningsBeatGuideUp.test(x),
+      "EARNINGS_BEAT_OR_GUIDE_UP",
+      6,
+      "earnings"
+    );
+    if (PAT.indexInclusion.test(x))
+      push(true, "INDEX_INCLUSION", 3, "index_inclusion");
+    push(PAT.uplist.test(x), "UPLISTING_TO_NASDAQ", 5, "uplist");
+  }
+
+  // Legal / meme
+  push(PAT.courtWin.test(x), "COURT_WIN_INJUNCTION", 6, "court");
+  push(PAT.memeOrInfluencer.test(x), "MEME_OR_INFLUENCER", 6, "influencer");
+
+  // Crypto / treasury catalysts (allow without capital raise)
+  if (PAT.cryptoTreasuryBuy.test(x))
+    push(true, "RESTRUCTURING_OR_FINANCING", 7, "crypto_treasury_buy");
+  if (PAT.cryptoTreasuryDiscuss.test(x))
+    push(true, "RESTRUCTURING_OR_FINANCING", 6, "crypto_treasury_discuss");
+
+  // Generic results suppression (no beat/raise/outlook)
+  if (PAT.financialResultsOnly.test(x) && !PAT.earningsBeatGuideUp.test(x)) {
+    push(true, "OTHER", -4, "generic_fin_results_only");
+  }
+
+  if (!hits.length) return { event: "OTHER", score: 0 };
+
+  const by = new Map<HighImpactEvent, number>();
+  for (const h of hits) by.set(h.label, (by.get(h.label) ?? 0) + h.w);
+
+  // Synergies / boosters
+  if (by.has("PIVOTAL_TRIAL_SUCCESS") && by.has("FDA_MARKETING_AUTH"))
+    by.set("FDA_MARKETING_AUTH", (by.get("FDA_MARKETING_AUTH") ?? 0) + 3);
   if (
-    LARGE_DOLLAR_AMOUNT.test(text) &&
-    (labels.has("TIER1_PARTNERSHIP") || labels.has("MAJOR_GOV_CONTRACT"))
+    (by.has("TIER1_PARTNERSHIP") ||
+      by.has("MAJOR_GOV_CONTRACT") ||
+      by.has("GOVERNMENT_EQUITY_OR_GRANT")) &&
+    (LARGE_DOLLARS.test(x) || SCALE.test(x))
   )
-    bestScore += 2;
+    by.set("OTHER", (by.get("OTHER") ?? 0) + 2);
 
-  if (SUPERLATIVE_MOVE_WORD.test(title)) bestScore += 1;
+  const total = [...by.values()].reduce((a, b) => a + b, 0);
+  const strongCatalyst =
+    (by.get("ACQUISITION_BUYOUT") ?? 0) >= 8 ||
+    (by.get("FDA_MARKETING_AUTH") ?? 0) >= 8 ||
+    (by.get("PIVOTAL_TRIAL_SUCCESS") ?? 0) >= 8 ||
+    (by.get("MAJOR_GOV_CONTRACT") ?? 0) >= 8 ||
+    (by.get("RESTRUCTURING_OR_FINANCING") ?? 0) >= 7;
 
-  return { event: bestEvent, score: bestScore, reasons };
+  if (total <= 0 && !strongCatalyst) return { event: "OTHER", score: 0 };
+
+  const top = [...by.entries()].sort((a, b) => b[1] - a[1])[0];
+  const event = top ? (top[0] as HighImpactEvent) : "OTHER";
+  const score = top ? top[1] : 0;
+
+  return { event, score };
 }
 
-/** Public API: classify a batch of RawItem into ClassifiedItem with interpretable scores. */
+/** Public API */
 export function classify(items: RawItem[]): ClassifiedItem[] {
   return items.map((it) => {
-    const { event, score } = classifyNewsItem(it.title, it.summary ?? "");
+    const { event, score } = classifyOne(it);
     return { ...it, klass: event as EventClass, score };
   });
 }

@@ -11,6 +11,7 @@ import { simulateEntry } from "./strategy/entry.js";
 import { Simulator } from "./sim/simulator.js";
 import { log } from "./logger.js";
 import { notifyDiscord } from "./notify/discord.js";
+import { isExchangeOk } from "./providers/fmp.js";
 
 const nowIso = () => new Date().toISOString();
 const pct = (x: number) => (x * 100).toFixed(2) + "%";
@@ -68,10 +69,11 @@ async function newsCycle() {
     });
     const filteredCount = filtered.length;
 
-    const classified = classify(filtered);
+    const classified = classify(rawItems);
     const scored = score(classified);
     const passed = scored.filter((it) => it.score >= cfg.ALERT_THRESHOLD);
     const passCount = passed.length;
+    console.log("[NEWS] passed", { passCount });
 
     log.info("[NEWS] fetched", {
       rawCount,
@@ -85,6 +87,16 @@ async function newsCycle() {
       if (!symbol) {
         log.warn("[NEWS] skip (no symbol)", {
           title: item.title?.slice(0, 120),
+        });
+        continue;
+      }
+
+      const passed = await isExchangeOk(symbol);
+
+      if (!passed) {
+        log.info("[FMP] skip (exchange check failed)", {
+          symbol,
+          title: item.title,
         });
         continue;
       }
@@ -263,9 +275,9 @@ function start() {
   setInterval(newsCycle, pollMs);
 
   // Keep the socket alive with a baseline symbol; real names are tracked via watchlist
-  const keepAliveTickers = ["SPY"];
-  log.info("[BOOT] connecting WS (keepalive):", keepAliveTickers);
-  feed.connect([...new Set(keepAliveTickers)]);
+  // const keepAliveTickers = ["SPY"];
+  // log.info("[BOOT] connecting WS (keepalive):", keepAliveTickers);
+  // feed.connect([...new Set(keepAliveTickers)]);
 }
 
 start();
