@@ -82,7 +82,7 @@ export async function fetchFmpPressReleases(
         "https://financialmodelingprep.com/stable/news/press-releases-latest",
         {
           timeout: 8000,
-          params: { limit: 1000, page, apikey: cfg.FMP_API_KEY },
+          params: { limit: 100, page, apikey: cfg.FMP_API_KEY },
         }
       );
 
