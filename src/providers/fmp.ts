@@ -91,11 +91,11 @@ export async function fetchFmpPressReleases(
         : undefined;
 
       const items = (Array.isArray(data) ? data : [])
-        .filter((d: any) => {
-          if (!cutoffISO) return true;
-          const dt = String(d?.date || d?.publishedDate || "");
-          return dt && dt >= cutoffISO;
-        })
+        // .filter((d: any) => {
+        //   if (!cutoffISO) return true;
+        //   const dt = String(d?.date || d?.publishedDate || "");
+        //   return dt && dt >= cutoffISO;
+        // })
         .map((d: any) => ({
           id: `${d.symbol}|${d.date || d.publishedDate}|${d.url || d.link}`,
           url: d.url || d.link,
