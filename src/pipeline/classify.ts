@@ -1,12 +1,13 @@
-// src/pipeline/classify.ts
 // Hardened, dependency-free rules tuned from your examples and numbers file.
+// Adds coverage for:
+// - Listing compliance regained (treated under UPLISTING_TO_NASDAQ)
+// - Tier-1 "powered by/adopts/integrates/selects" partnerships (even off-wire)
+// - Swing-to-profit & big % growth exceptions for financial results
+// - Positive financing exceptions (terminates/withdraws/reduces offering)
+
 // Blocks: proxy-advisor recs, law-firm “deadline alerts,” awards/celebrations,
 // cybersecurity-incident updates, investor-conference participation,
-// and plain “financial results” with no beat/raise.
-// Treats Russell joins as low-signal (scored as minor downstream).
-// Allows: crypto-treasury buys/pivots & large treasury-discussions (even without a capital raise);
-// definitive M&A even off-wire when per-share/valuation is present;
-// Tier-1 “signed/enters into/inks agreement/contract/MOU,” even off-wire.
+// and plain “financial results” with no beat/raise/exception.
 
 import type { RawItem, ClassifiedItem, EventClass } from "../types.js";
 
@@ -201,6 +202,26 @@ function isWirePR(url?: string, text?: string): boolean {
   return WIRE_TOKENS.some((tok) => t.includes(tok));
 }
 
+/* ---------- Helper cues for big % changes ---------- */
+function hasBigPercentGrowth(x: string): boolean {
+  // Detect ≥50% growth for revenue/sales/EPS/ARR/bookings, or "record" revenue.
+  // Examples: "revenue up 63%", "sales increased 75%", "EPS up 120%".
+  const r =
+    /\b(revenue|sales|eps|earnings|arr|bookings|net income)\b[^.%]{0,80}?\b(up|increase[sd]?|grow[n|th|s]?|jump(?:ed)?|soar(?:ed)?|surged)\b[^%]{0,20}?(\d{2,3})\s?%/i;
+  const m = x.match(r);
+  if (m && m[3]) {
+    const pct = parseInt(m[3], 10);
+    if (!isNaN(pct) && pct >= 50) return true;
+  }
+  return /\brecord\b[^.]{0,40}\b(revenue|sales)\b/i.test(x);
+}
+
+function hasSwingToProfit(x: string): boolean {
+  return /\b(returns?|returned|swing|swung|back)\s+to\s+(profit|profitability|positive (?:net )?income)\b/i.test(
+    x
+  );
+}
+
 /* ---------- Patterns ---------- */
 const PAT = {
   // Bio
@@ -240,10 +261,16 @@ const PAT = {
   // Corporate / other
   earningsBeatGuideUp:
     /\b(raises?|increas(?:es|ed)|hikes?)\b.*\b(guidance|outlook|forecast)\b|\b(beat[s]?)\b.*\b(consensus|estimates|Street|expectations)\b/i,
+
   indexInclusion:
     /\b(added|to be added|to join|inclusion|included)\b.*\b(Russell\s?(2000|3000)|MSCI|S&P\s?(500|400|600)|S&P Dow Jones Indices|FTSE)\b/i,
+
   uplist:
     /\b(uplisting|uplist|approved to list)\b.*\b(Nasdaq|NYSE|NYSE American)\b/i,
+
+  // NEW: listing compliance regained
+  listingCompliance:
+    /\b(regain(?:ed|s)?|returns? to|back in)\b.*\b(compliance)\b.*\b(Nasdaq|NYSE|listing)\b/i,
 
   // Legal / meme
   courtWin:
@@ -269,7 +296,7 @@ const PAT = {
   investorConfs:
     /\b(participat(e|es|ing)|to participate|will participate)\b.*\b(investor (?:conference|conferences)|conference|fireside chat|non-deal roadshow)\b/i,
 
-  // Generic “financial results” text (suppressed unless beat/raise matches above)
+  // Generic “financial results” text (suppressed unless beat/raise/exception)
   financialResultsOnly:
     /\b(financial results|first quarter|second quarter|third quarter|fourth quarter|first half|second half|H1|H2|fiscal (?:Q\d|year) results)\b/i,
 
@@ -278,6 +305,9 @@ const PAT = {
     /\b(Form\s*S-3|shelf registration|at[- ]the[- ]market|ATM (program|facility))\b/i,
   plainDilution:
     /\b(securities purchase agreement|registered direct|PIPE|private placement|unit financing|equity offering|warrants?)\b/i,
+  // NEW: positive financing exception (terminate/withdraw/reduce)
+  antiDilutionPositive:
+    /\b(terminates?|terminated|withdraws?|withdrawn|cancels?|cancelled|reduces?|downsized?)\b.*\b(offering|registered direct|ATM|at[- ]the[- ]market|public offering|securities purchase agreement)\b/i,
 
   // Misc noise (kept for completeness & parity with scorer)
   strategicAlts:
@@ -377,14 +407,21 @@ function classifyOne(it: RawItem): { event: HighImpactEvent; score: number } {
     if (nonbind || admin || asset) push(true, "OTHER", 2, "mna_low_impact");
   }
 
-  // Gov / partnerships (Tier-1 deal can pass off-wire if signed/inked/enters into)
+  // Gov / partnerships (Tier-1 deal can pass off-wire if "powered by/adopts/integrates/selects" too)
   {
     const govContract = PAT.govWords.test(x) && PAT.contractAny.test(x);
     const govEquity = PAT.govEquity.test(x);
+
+    // Broaden the notion of a real partnership for Tier-1
+    const verbsTier1 =
+      /\b(powered by|built (?:on|with)|integrat(?:es|ed)? with|adopt(?:s|ed)|selects?|standardiz(?:es|ed) on|deploys?|rolls out)\b/i;
+
     const isPartnership =
       PAT.partnershipAny.test(x) ||
       PAT.contractAny.test(x) ||
-      PAT.dealSigned.test(x);
+      PAT.dealSigned.test(x) ||
+      (TIER1_RX.test(x) && verbsTier1.test(x));
+
     const hasTier1 = TIER1_RX.test(x);
     const hasScale = LARGE_DOLLARS.test(x) || SCALE.test(x);
 
@@ -395,7 +432,7 @@ function classifyOne(it: RawItem): { event: HighImpactEvent; score: number } {
     push(govEquity, "GOVERNMENT_EQUITY_OR_GRANT", 9, "gov_equity");
 
     const nameDropOnly =
-      hasTier1 && PAT.nameDropContext.test(x) && !isPartnership;
+      hasTier1 && !isPartnership && PAT.nameDropContext.test(x);
     if (isPartnership && (hasTier1 || hasScale) && !nameDropOnly)
       push(
         true,
@@ -407,17 +444,25 @@ function classifyOne(it: RawItem): { event: HighImpactEvent; score: number } {
       push(true, "MEME_OR_INFLUENCER", 4, "tier1_name_drop_only");
   }
 
-  // Corporate (earnings require beat/raise tokens; Russell will be minor in scorer)
+  // Corporate (earnings require beat/raise tokens OR strong exceptions)
   {
+    const beatOrGuide = PAT.earningsBeatGuideUp.test(x);
+    const resultsBlob = PAT.financialResultsOnly.test(x);
+    const strongExceptions = hasSwingToProfit(x) || hasBigPercentGrowth(x);
+
     push(
-      PAT.earningsBeatGuideUp.test(x),
+      beatOrGuide || (resultsBlob && strongExceptions),
       "EARNINGS_BEAT_OR_GUIDE_UP",
-      6,
-      "earnings"
+      beatOrGuide ? 6 : 5,
+      beatOrGuide ? "earnings" : "results_exception"
     );
+
     if (PAT.indexInclusion.test(x))
       push(true, "INDEX_INCLUSION", 3, "index_inclusion");
     push(PAT.uplist.test(x), "UPLISTING_TO_NASDAQ", 5, "uplist");
+
+    // NEW: explicit listing compliance regained → treat under uplist bucket
+    push(PAT.listingCompliance.test(x), "UPLISTING_TO_NASDAQ", 6, "compliance");
   }
 
   // Legal / meme
@@ -430,8 +475,17 @@ function classifyOne(it: RawItem): { event: HighImpactEvent; score: number } {
   if (PAT.cryptoTreasuryDiscuss.test(x))
     push(true, "RESTRUCTURING_OR_FINANCING", 6, "crypto_treasury_discuss");
 
-  // Generic results suppression (no beat/raise/outlook)
-  if (PAT.financialResultsOnly.test(x) && !PAT.earningsBeatGuideUp.test(x)) {
+  // NEW: positive financing exception (terminate/withdraw/reduce offering)
+  if (PAT.antiDilutionPositive.test(x))
+    push(true, "RESTRUCTURING_OR_FINANCING", 7, "anti_dilution_positive");
+
+  // Generic results suppression (no beat/raise/outcome)
+  if (
+    PAT.financialResultsOnly.test(x) &&
+    !PAT.earningsBeatGuideUp.test(x) &&
+    !hasSwingToProfit(x) &&
+    !hasBigPercentGrowth(x)
+  ) {
     push(true, "OTHER", -4, "generic_fin_results_only");
   }
 
@@ -457,7 +511,8 @@ function classifyOne(it: RawItem): { event: HighImpactEvent; score: number } {
     (by.get("FDA_MARKETING_AUTH") ?? 0) >= 8 ||
     (by.get("PIVOTAL_TRIAL_SUCCESS") ?? 0) >= 8 ||
     (by.get("MAJOR_GOV_CONTRACT") ?? 0) >= 8 ||
-    (by.get("RESTRUCTURING_OR_FINANCING") ?? 0) >= 7;
+    (by.get("RESTRUCTURING_OR_FINANCING") ?? 0) >= 7 ||
+    (by.get("UPLISTING_TO_NASDAQ") ?? 0) >= 6;
 
   if (total <= 0 && !strongCatalyst) return { event: "OTHER", score: 0 };
 
