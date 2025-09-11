@@ -7,6 +7,7 @@ const EnvSchema = z.object({
   MARKETAUX_API_KEY: z.string().optional(),
   FMP_API_KEY: z.string().optional(),
   POLYGON_API_KEY: z.string().optional(),
+  BENZINGA_API_KEY: z.string().optional(),
   DISCORD_BOT_TOKEN: z.string().optional(),
   DISCORD_CHANNEL_ID: z.string().optional(),
   DB_PATH: z.string().default("./data/events.db"),

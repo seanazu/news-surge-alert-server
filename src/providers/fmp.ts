@@ -1,4 +1,4 @@
-// src/pipeline/fetchFmpPressReleases.ts
+// src/pipeline/fetchBenzingaPressReleases.ts
 import axios from "axios";
 import { cfg } from "../config.js";
 import { minutesAgoISO } from "../utils/time.js";
@@ -6,8 +6,8 @@ import type { RawItem } from "../types.js";
 import { log } from "../logger.js";
 
 /** Params for press-release fetch + market-cap filter. */
-interface FetchFmpPressReleasesParams {
-  /** How many paginated PR pages to pull from FMP (50 items per page). */
+interface FetchBenzingaPressReleases {
+  /** How many paginated PR pages to pull (logical pages for the provider). */
   maxPages?: number;
   /** Keep PRs whose issuer market cap is >= this (in USD). Omit to disable lower bound. */
   minMarketCap?: number;
@@ -60,67 +60,81 @@ async function fetchMarketCaps(
   return out;
 }
 
-/** FinancialModelingPrep press releases (often fast for microcaps), with market-cap filtering. */
-export async function fetchFmpPressReleases(
-  params: FetchFmpPressReleasesParams = {}
+/** Benzinga Press Releases (near real-time), with market-cap filtering.
+ *  Returns the SAME RawItem shape as before.
+ *
+ *  Requires: cfg.BENZINGA_API_KEY
+ *  Endpoint: GET https://api.benzinga.com/api/v2/news
+ *  Filters : channels=Press Releases, displayOutput=full, updatedSince=<unix>
+ */
+export async function fetchBenzingaPressReleases(
+  params: FetchBenzingaPressReleases = {}
 ): Promise<RawItem[]> {
   const {
-    maxPages = 2,
+    maxPages = 1,
     minMarketCap = 5_000_000,
     maxMarketCap = 600_000_000,
     includeUnknownMktCap = false,
-    lookbackMinutes = 60, // default: last 60 minutes
   } = params;
 
   const out: RawItem[] = [];
-  if (!cfg.FMP_API_KEY) return out;
 
-  // 1) Pull press releases (paged)
+  if (!cfg.BENZINGA_API_KEY) {
+    log.warn("[BZ] BENZINGA_API_KEY missing — returning empty set");
+    return out;
+  }
+
+  // Pull up to maxPages of results (if the API supports paging).
   for (let page = 1; page <= maxPages; page++) {
     try {
-      const { data } = await axios.get(
-        "https://financialmodelingprep.com/stable/news/press-releases-latest",
-        {
-          timeout: 8000,
-          params: { limit: 100, page, apikey: cfg.FMP_API_KEY },
-        }
-      );
+      const { data } = await axios.get("https://api.benzinga.com/api/v2/news", {
+        params: {
+          displayOutput: "full",
+          sort: "updated:desc",
+          page: 1,
+          pageSize: 50,
+          token: cfg.BENZINGA_API_KEY,
+        },
+      });
 
-      const cutoffISO = lookbackMinutes
-        ? minutesAgoISO(lookbackMinutes)
-        : undefined;
+      const items = (Array.isArray(data) ? data : []).map((d: any) => {
+        const url = d?.url || d?.amp_url || d?.source || undefined;
+        const title = d?.title || "";
+        const summary = d?.teaser + String(d?.body) || "";
+        const created = d?.created || d?.updated || null;
+        const stocks = Array.isArray(d?.stocks) ? d.stocks : [];
+        const firstSym = (stocks[0] || "").toString().trim();
 
-      const items = (Array.isArray(data) ? data : [])
-        // .filter((d: any) => {
-        //   if (!cutoffISO) return true;
-        //   const dt = String(d?.date || d?.publishedDate || "");
-        //   return dt && dt >= cutoffISO;
-        // })
-        .map((d: any) => ({
-          id: `${d.symbol}|${d.date || d.publishedDate}|${d.url || d.link}`,
-          url: d.url || d.link,
-          title: d.title,
-          summary: d.text,
-          source: "fmp_pr",
-          publishedAt: d.date || d.publishedDate,
-          symbols: [d.symbol].filter(Boolean),
-        })) as RawItem[];
+        const mapped: RawItem = {
+          id: `${firstSym}|${created}|${url}`,
+          url,
+          title,
+          summary,
+          source: "benzinga_pr",
+          publishedAt: created,
+          symbols: stocks.filter(Boolean).map((s: { name: any }) => s.name),
+        };
+        return mapped;
+      }) as RawItem[];
 
       out.push(...items);
 
-      log.info("[FMP] fetched press releases page", {
+      log.info("[BZ] fetched press releases page", {
         page,
         articles: items.length,
       });
+
+      // If the provider doesn't page results, break early when we see fewer items.
+      if (!Array.isArray(data) || !data.length) break;
     } catch (e) {
-      log.warn("[FMP] error fetching press releases", { page, error: e });
+      log.warn("[BZ] error fetching press releases", { page, error: e });
     }
   }
 
-  log.info("[FMP] total raw PR items", { items: out.length });
+  log.info("[BZ] total raw PR items", { items: out.length });
   if (!out.length) return out;
 
-  // 2) Resolve market caps for all unique symbols, then filter
+  // 2) Resolve market caps for all unique symbols, then filter (unchanged logic)
   const uniqueSymbols = Array.from(
     new Set(out.flatMap((it) => (Array.isArray(it.symbols) ? it.symbols : [])))
   ).filter(Boolean);
@@ -135,17 +149,18 @@ export async function fetchFmpPressReleases(
     const cap = capMap.get(sym);
     if (!Number.isFinite(cap)) return includeUnknownMktCap;
 
-    if (typeof minMarketCap === "number" && cap! < minMarketCap) return false;
-    if (typeof maxMarketCap === "number" && cap! > maxMarketCap) return false;
+    if (typeof minMarketCap === "number" && (cap as number) < minMarketCap)
+      return false;
+    if (typeof maxMarketCap === "number" && (cap as number) > maxMarketCap)
+      return false;
     return true;
   };
 
   const filtered = out.filter(passesCapFilter);
-
   return filtered;
 }
 
-const APIKEY = cfg.FMP_API_KEY; // <-- your key
+const APIKEY = cfg.FMP_API_KEY; // <-- your FMP key (unchanged for functions below)
 
 /**
  * Returns true IFF:

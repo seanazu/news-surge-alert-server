@@ -9,7 +9,7 @@
     "build:all": "npm run build && npm run build:backtest",
     "dev": "tsup src/run_realtime.ts --watch --format esm --dts --out-dir dist --clean --onSuccess=\"node dist/run_realtime.js\"",
     "start": "node dist/run_realtime.js",
-    "bt:fmp": "node dist/backtest.js --mode=fmp ",
+    "bt:fmp": "node dist/backtest.js ",
     "bt:file": "node dist/backtest.js --mode=file --file=./out/recommended.jsonl ",
     "bt:analyze": "tsx tests/analyze_backtest.ts --file ./out/backtest_results.csv"
   },
@@ -21,6 +21,7 @@
     "dotenv": "^16.4.5",
     "luxon": "^3.7.2",
     "p-limit": "^5.0.0",
+    "playwright": "^1.55.0",
     "rss-parser": "^3.13.0",
     "ws": "^8.18.0",
     "yargs": "^18.0.0",
