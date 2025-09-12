@@ -1,9 +1,9 @@
-// Scoring aligned with the hardened classifier.
-// Adds boosts for:
-// - Listing compliance regained
-// - Tier-1 "powered by/adopts/integrates/selects" (even off-wire)
-// - Swing-to-profit & big % growth (≥50%)
-// - Positive financing exceptions (terminates/withdraws/reduces offering)
+// Scoring aligned with the classifier.
+// NEW in this version:
+// - Boost preclinical NHP & patient-derived neuron signals (esp. hot diseases)
+// - Boost “special cash dividend” (explicit per-share amount) and avoid dividend cap
+// - Suppress misinformation/unauthorized PRs
+// - Keep earlier improvements: compliance regained, Tier-1 powered-by verbs, etc.
 
 import type { ClassifiedItem } from "../types.js";
 
@@ -68,12 +68,12 @@ const RX_VOTE_ADMIN_ONLY =
   /\b(definitive proxy|proxy (statement|materials)|special meeting|annual meeting|extraordinary general meeting|EGM|shareholder vote|record date)\b/i;
 const RX_LAWFIRM =
   /\b(class action|securities class action|investor (?:lawsuit|alert|reminder)|deadline alert|shareholder rights law firm|securities litigation|investigat(?:ion|ing)|Hagens Berman|Pomerantz|Rosen Law Firm|Glancy Prongay|Bronstein[, ]+Gewirtz|Kahn Swick|Saxena White|Kessler Topaz|Levi & Korsinsky)\b/i;
-const RX_AWARDS =
-  /\b(award|awards|winner|wins|finalist|recipient|honoree|recognized|recognition|named (?:as|to) (?:the )?(?:list|index|ranking)|anniversary|celebrat(es|ing|ion)|Respect the Drive)\b/i;
 const RX_SECURITY_UPDATE =
   /\b(cyber(?:security)?|security|ransomware|data (?:breach|exposure)|cyber[- ]?attack)\b.*\b(update|updated|provid(?:e|es)d? an? update)\b/i;
 const RX_INVESTOR_CONFS =
   /\b(participat(e|es|ing)|to participate|will participate)\b.*\b(investor (?:conference|conferences)|conference|fireside chat|non-deal roadshow)\b/i;
+const RX_AWARDS =
+  /\b(award|awards|winner|wins|finalist|recipient|honoree|recognized|recognition|named (?:as|to) (?:the )?(?:list|index|ranking)|anniversary|celebrat(es|ing|ion)|Respect the Drive)\b/i;
 
 const RX_FIN_RESULTS =
   /\b(financial results|first quarter|second quarter|third quarter|fourth quarter|first half|second half|H1|H2|fiscal (?:Q\d|year) results)\b/i;
@@ -102,7 +102,7 @@ const RX_JOURNAL =
 const RX_CONFERENCE =
   /\b(presents?|presented|to present|poster|abstract|oral presentation)\b.*\b(conference|congress|symposium|meeting)\b/i;
 
-/** M&A specificity + prelim/admin */
+/** M&A specifics */
 const RX_MNA_DEFINITIVE =
   /\b(definitive (merger|agreement|deal)|merger agreement (executed|signed)|entered into (a )?definitive (agreement|merger))\b/i;
 const RX_MNA_WILL_ACQUIRE = /\b(will|to)\s+acquire\b|\bto be acquired\b/i;
@@ -133,8 +133,6 @@ const RX_FINANCING_STRATEGIC =
   /\b(strategic (investment|investor|partner|partnership|financing))\b/i;
 const RX_FINANCING_GOING =
   /\b(going[- ]concern (removed|resolved)|debt (extinguished|retired|repaid|eliminated|paid (down|off))|default (cured|resolved))\b/i;
-
-// NEW: positive financing exception (terminate/withdraw/reduce)
 const RX_ANTI_DILUTION_POS =
   /\b(terminates?|terminated|withdraws?|withdrawn|cancels?|cancelled|reduces?|downsized?)\b.*\b(offering|registered direct|ATM|at[- ]the[- ]market|public offering|securities purchase agreement)\b/i;
 
@@ -144,7 +142,7 @@ const RX_CRYPTO_TREASURY_BUY =
 const RX_CRYPTO_TREASURY_DISCUSS =
   /\b(treasury|reserve|policy|program|strategy)\b.*\b(discuss(?:ions?)?|approached|proposal|term sheet|non[- ]binding|indicative)\b.*\b(\$?\d+(?:\.\d+)?\s*(?:million|billion))\b/i;
 
-/** Index inclusion (major vs minor) — treat Russell as MINOR here */
+/** Index inclusion (major vs minor) */
 const RX_INDEX_MAJOR = /\b(S&P\s?(500|400|600)|MSCI|FTSE)\b/i;
 const RX_INDEX_MINOR =
   /\b(Russell\s?(2000|3000)|S&P\/?TSX Composite|TSX Composite|TSX Venture|TSXV|CSE Composite)\b/i;
@@ -156,33 +154,44 @@ const RX_MEDIA_INTERVIEW =
   /\b(says|tells|told|said)\b.*\b(CNBC|Yahoo Finance|Bloomberg|Fox Business|Barron'?s)\b/i;
 const RX_BUYBACK_DIV =
   /\b(share repurchase|buyback|dividend (declaration|increase|initiation))\b/i;
-const RX_STRAT_ALTS =
-  /\b(explore|evaluat(e|ing)|commence(s|d)?)\b.*\b(strategic alternatives|strategic review)\b/i;
 
-// NEW: tier-1 verbs for "powered by/adopts/integrates/selects"
+// Tier-1 powered-by verbs and Tier-1 names
 const RX_TIER1_VERBS =
   /\b(powered by|built (?:on|with)|integrat(?:es|ed)? with|adopt(?:s|ed)|selects?|standardiz(?:es|ed) on|deploys?|rolls out)\b/i;
-
-// Simple tier-1 matcher mirroring classify (kept here to avoid imports)
 const TIER1_RX = new RegExp(
   "\\b(?:Nvidia|Microsoft|OpenAI|Apple|Amazon|AWS|Google|Alphabet|Meta|Facebook|Tesla|Oracle|Salesforce|Adobe|IBM|Intel|AMD|Broadcom|Qualcomm|TSMC|Samsung|Cisco|Dell|HPE|Supermicro|Snowflake|Palantir|Siemens|Sony|Workday|ServiceNow|Shopify|Twilio|Atlassian|Zoom|Datadog|CrowdStrike|Okta|MongoDB|Cloudflare|Stripe|Block|Square|Walmart|Target|Costco|Home Depot|Lowe's|Best Buy|Alibaba|Tencent|JD.com|ByteDance|TikTok|Lockheed Martin|Raytheon|RTX|Boeing|Northrop Grumman|General Dynamics|L3Harris|BAE Systems|Thales|Airbus|SpaceX|NASA|Space Force|USSF|DARPA|Department of Defense|DoD|Army|Navy|Air Force|Pfizer|Merck|Johnson & Johnson|J&J|Bristol-Myers|BMS|Eli Lilly|Lilly|Sanofi|GSK|AstraZeneca|Novo Nordisk|Roche|Novartis|Bayer|Amgen|AbbVie|Takeda|Gilead|Biogen|Regeneron|Medtronic|Boston Scientific|Abbott|GE Healthcare|Philips|Siemens Healthineers|Intuitive Surgical|BARDA|HHS|NIH|CMS|Medicare|VA|FDA|EMA|EC|MHRA|PMDA|ExxonMobil|Chevron|BP|Shell|TotalEnergies|Schlumberger|Halliburton|Caterpillar|Deere|GE|Honeywell)(?:'s)?\\b",
   "i"
 );
 
-// NEW: listing compliance regained
+// Listing compliance regained
 const RX_LISTING_COMPLIANCE =
   /\b(regain(?:ed|s)?|returns? to|back in)\b.*\b(compliance)\b.*\b(Nasdaq|NYSE|listing)\b/i;
 
-// NEW: big % growth + swing to profit
-const RX_BIG_PERCENT =
-  /\b(revenue|sales|eps|earnings|arr|bookings|net income)\b[^.%]{0,80}?\b(up|increase[sd]?|grow[n|th|s]?|jump(?:ed)?|soar(?:ed)?|surged)\b[^%]{0,20}?(\d{2,3})\s?%/i;
-const RX_SWING_PROFIT =
-  /\b(returns?|returned|swing|swung|back)\s+to\s+(profit|profitability|positive (?:net )?income)\b/i;
+// NEW: preclinical signals
+const RX_PRECLIN_NHP =
+  /\b(non[- ]?human|nonhuman)\s+primate[s]?\b.*\b(well tolerated|tolerability|safety|safe)\b.*\b(higher than|exceed(?:s|ed)|above)\b.*\b(efficacious|effective)\b/i;
+const RX_CELL_MODEL =
+  /\b(patient[- ]derived|iPSC|neurons?|organoid[s]?)\b.*\b(early (signals?|evidence) of (benefit|efficacy)|signal(?:s)? of (benefit|efficacy)|improv(?:e|ed)|rescue)\b/i;
+const RX_HOT_DISEASE =
+  /\b(Alzheimer'?s|ALS|Parkinson'?s|Huntington'?s|multiple sclerosis|MS\b|glioblastoma|GBM|pancreatic cancer)\b/i;
+
+// NEW: special dividend (explicit amount)
+const RX_SPECIAL_DIVIDEND =
+  /\b(special (cash )?dividend)\b.*\$\s?\d+(?:\.\d+)?\s*(?:per|\/)\s*share|\b(special (cash )?dividend of)\s*\$\s?\d+(?:\.\d+)?\b/i;
+
+// NEW: misinformation / unauthorized PR
+const RX_MISINFO =
+  /\b(misinformation|unauthorized (press )?release|retracts? (?:a )?press release|clarif(?:y|ies) misinformation)\b/i;
 
 export function score(items: ClassifiedItem[]): ClassifiedItem[] {
   return items.map((it) => {
     const blob = `${it.title ?? ""} ${it.summary ?? ""}`;
     const isWire = isWirePR((it as any).url, blob);
+
+    // 0) Hard suppress misinformation
+    if (RX_MISINFO.test(blob)) {
+      return { ...it, score: 0 };
+    }
 
     // 1) Baseline
     let s = BASELINE[it.klass] ?? BASELINE.OTHER;
@@ -199,7 +208,11 @@ export function score(items: ClassifiedItem[]): ClassifiedItem[] {
     if (RX_ANALYST.test(blob) || RX_MEDIA_INTERVIEW.test(blob))
       s = Math.min(s, 0.16);
     if (RX_SHELF_ATM.test(blob)) s = Math.min(s, 0.18);
-    if (RX_BUYBACK_DIV.test(blob)) s = Math.min(s, 0.2);
+
+    // IMPORTANT: don't cap when it's a SPECIAL dividend
+    const isSpecialDividend = RX_SPECIAL_DIVIDEND.test(blob);
+    if (!isSpecialDividend && RX_BUYBACK_DIV.test(blob)) s = Math.min(s, 0.2);
+
     if (RX_STRAT_ALTS.test(blob)) s = Math.min(s, 0.3);
 
     // 3) Dilutive financing suppression (unless clear positives)
@@ -217,6 +230,11 @@ export function score(items: ClassifiedItem[]): ClassifiedItem[] {
       if (RX_PIVOTAL.test(blob)) s += 0.05;
       else if (RX_MID_STAGE_WIN.test(blob)) s += 0.05;
       if (!RX_TOPLINE_STRONG.test(blob)) s -= 0.05;
+
+      // NEW: preclinical boosts
+      if (RX_PRECLIN_NHP.test(blob)) s += 0.06;
+      if (RX_CELL_MODEL.test(blob))
+        s += RX_HOT_DISEASE.test(blob) ? 0.06 : 0.04;
     }
 
     // 5) Approvals split
@@ -261,7 +279,7 @@ export function score(items: ClassifiedItem[]): ClassifiedItem[] {
     )
       s = Math.min(s, 0.48);
 
-    // 9) Index inclusion split — treat **Russell** as MINOR (cap)
+    // 9) Index inclusion split — treat Russell as MINOR (cap)
     if (String(it.klass) === "INDEX_INCLUSION") {
       if (RX_INDEX_MAJOR.test(blob)) s += 0.04;
       if (RX_INDEX_MINOR.test(blob)) s = Math.min(s, 0.4);
@@ -281,18 +299,15 @@ export function score(items: ClassifiedItem[]): ClassifiedItem[] {
       label === "INDEX_INCLUSION" ||
       label === "UPLISTING_TO_NASDAQ";
 
-    // Do not penalize off-wire when it's a definitive M&A or a real Tier-1 "powered by/adopts/integrates/selects"
+    // Do not penalize off-wire when it's definitive M&A or a real Tier-1 “powered by/adopts/integrates/selects”
     const tier1Powered = TIER1_RX.test(blob) && RX_TIER1_VERBS.test(blob);
-
     if (wireSensitive) {
       const definitiveMnaOffWire =
         label === "ACQUISITION_BUYOUT" &&
         !isWire &&
         (RX_MNA_DEFINITIVE.test(blob) ||
           (RX_MNA_WILL_ACQUIRE.test(blob) && RX_MNA_PERPRICE.test(blob)));
-      if (definitiveMnaOffWire || tier1Powered) {
-        // no off-wire cap
-      } else {
+      if (!(definitiveMnaOffWire || tier1Powered)) {
         if (isWire) s += 0.04;
         else s = Math.min(s, 0.48);
       }
@@ -311,35 +326,33 @@ export function score(items: ClassifiedItem[]): ClassifiedItem[] {
       if (LARGE_DOLLAR_AMOUNT.test(blob)) s += 0.04;
     }
 
-    // 12) Generic results cap unless beat/raise **or** strong exceptions
-    let hasBigPct = false;
-    const pctMatch = blob.match(RX_BIG_PERCENT);
-    if (pctMatch && pctMatch[3]) {
-      const pct = parseInt(pctMatch[3], 10);
-      hasBigPct = !isNaN(pct) && pct >= 50;
-    }
-    const swingToProfit = RX_SWING_PROFIT.test(blob);
+    // 12) Generic results cap unless beat/raise OR strong exceptions
+    const pctMatch = blob.match(
+      /\b(revenue|sales|eps|earnings|arr|bookings|net income)\b[^.%]{0,80}?\b(up|increase[sd]?|grow[n|th|s]?|jump(?:ed)?|soar(?:ed)?|surged)\b[^%]{0,20}?(\d{2,3})\s?%/i
+    );
+    const hasBigPct = pctMatch?.[3]
+      ? !isNaN(parseInt(pctMatch[3], 10)) && parseInt(pctMatch[3], 10) >= 50
+      : false;
+    const swingProfit =
+      /\b(returns?|returned|swing|swung|back)\s+to\s+(profit|profitability|positive (?:net )?income)\b/i.test(
+        blob
+      );
 
     if (RX_FIN_RESULTS.test(blob) && !RX_EARNINGS_BEAT.test(blob)) {
-      if (hasBigPct || swingToProfit) {
-        // permit and boost instead of capping
-        s += swingToProfit ? 0.1 : 0.08;
-      } else {
-        s = Math.min(s, 0.32);
-      }
+      if (hasBigPct || swingProfit) s += swingProfit ? 0.1 : 0.08;
+      else s = Math.min(s, 0.32);
     }
 
     // 13) Positive financing exception
-    if (RX_ANTI_DILUTION_POS.test(blob)) {
-      s += 0.12;
-    }
+    if (RX_ANTI_DILUTION_POS.test(blob)) s += 0.12;
 
-    // 14) Listing compliance regained — boost (treated in uplist bucket)
-    if (RX_LISTING_COMPLIANCE.test(blob)) {
-      s += 0.12;
-    }
+    // 14) Listing compliance regained
+    if (RX_LISTING_COMPLIANCE.test(blob)) s += 0.12;
 
-    // 15) Generic boosters
+    // 15) Special cash dividend (explicit amount)
+    if (isSpecialDividend) s += 0.14;
+
+    // 16) Generic boosters
     const isSmallCap =
       (it.marketCap ?? 0) > 0 && (it.marketCap as number) < 1_000_000_000; // <$1B
     if (isSmallCap) s += 0.14;
