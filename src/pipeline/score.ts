@@ -155,6 +155,10 @@ const RX_MEDIA_INTERVIEW =
 const RX_BUYBACK_DIV =
   /\b(share repurchase|buyback|dividend (declaration|increase|initiation))\b/i;
 
+// Strategic alternatives (e.g., "company exploring strategic alternatives")
+const RX_STRAT_ALTS =
+  /\b(strategic alternatives?|exploring (alternatives|options)|review of strategic alternatives|considering strategic alternatives)\b/i;
+
 // Tier-1 powered-by verbs and Tier-1 names
 const RX_TIER1_VERBS =
   /\b(powered by|built (?:on|with)|integrat(?:es|ed)? with|adopt(?:s|ed)|selects?|standardiz(?:es|ed) on|deploys?|rolls out)\b/i;
