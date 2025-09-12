@@ -12,6 +12,7 @@ import { Simulator } from "./sim/simulator.js";
 import { log } from "./logger.js";
 import { notifyDiscord } from "./notify/discord.js";
 import { isExchangeOk } from "./providers/fmp.js";
+import { hasVeryUnusualVolume } from "./providers/polygon.js";
 
 const nowIso = () => new Date().toISOString();
 const pct = (x: number) => (x * 100).toFixed(2) + "%";
@@ -95,6 +96,15 @@ async function newsCycle() {
 
       if (!passed) {
         log.info("[FMP] skip (exchange check failed)", {
+          symbol,
+          title: item.title,
+        });
+        continue;
+      }
+
+      const hasUnusualVolume = await hasVeryUnusualVolume(symbol);
+      if (!hasUnusualVolume) {
+        log.info("[POLY] skip (no unusual volume)", {
           symbol,
           title: item.title,
         });
