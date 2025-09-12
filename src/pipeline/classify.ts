@@ -195,15 +195,17 @@ function isWirePR(url?: string, text?: string): boolean {
 const HOT_DISEASE_RX =
   /\b(Alzheimer'?s|ALS|Parkinson'?s|Huntington'?s|multiple sclerosis|MS\b|glioblastoma|GBM|pancreatic cancer)\b/i;
 
+const RECORD_SALES_RX = /\brecord\b[^.]{0,40}\b(revenue|sales)\b/i;
 function hasBigPercentGrowth(x: string): boolean {
+  // Allow "up 55% y/y", "increased 60 percent", "grew 70% year-over-year"
   const m = x.match(
-    /\b(revenue|sales|eps|earnings|arr|bookings|net income)\b[^.%]{0,80}?\b(up|increase[sd]?|grow[n|th|s]?|jump(?:ed)?|soar(?:ed)?|surged)\b[^%]{0,20}?(\d{2,3})\s?%/i
+    /\b(revenue|sales|eps|earnings|arr|bookings|net income)\b[^.%]{0,90}?\b(up|increase[sd]?|grow[n|th|s]?|jump(?:ed)?|soar(?:ed)?|surged)\b[^%]{0,25}?(\d{2,3})\s?%(\s*(y\/y|yoy|year[- ]over[- ]year|q\/q|qoq))?/i
   );
   if (m?.[3]) {
     const pct = parseInt(m[3], 10);
     if (!isNaN(pct) && pct >= 50) return true;
   }
-  return /\brecord\b[^.]{0,40}\b(revenue|sales)\b/i.test(x);
+  return RECORD_SALES_RX.test(x);
 }
 const swingToProfit = (x: string) =>
   /\b(returns?|returned|swing|swung|back)\s+to\s+(profit|profitability|positive (?:net )?income)\b/i.test(
@@ -212,38 +214,29 @@ const swingToProfit = (x: string) =>
 
 /* ---------- Patterns ---------- */
 const PAT = {
-  // Bio / clinical (registrational / pivotal / topline)
+  // Bio / clinical (registrational / pivotal / topline / mid-stage)
   pivotal:
-    /\b(phase\s*(iii|3)|pivotal|registrational)\b.*\b(success|met (?:the )?primary endpoint|statistically significant)\b/i,
+    /\b(phase\s*(iii|3)|pivotal|registrational|late[- ]stage)\b.*\b(success|met (?:the )?primary endpoint|statistically significant|p<\s*0?\.\d+)\b/i,
   topline:
-    /\b(top-?line)\b.*\b(positive|met (?:the )?primary endpoint|statistically significant)\b/i,
-
-  // NEW: mid-stage win (to classify strong Phase 2 results)
+    /\b(top-?line)\b.*\b(positive|met (?:the )?primary endpoint|statistically significant|p<\s*0?\.\d+)\b/i,
   midStageWin:
     /\b(phase\s*(ii|2)|mid[- ]stage)\b.*\b(win|successful|success|met|achieved|statistically significant|primary endpoint)\b/i,
-
   adcom:
     /\b(advisory (committee|panel)|adcom)\b.*\b(vote|voted|recommends?)\b/i,
 
+  // Approvals (US/EU/JP variants)
   approval:
-    /\b(FDA|EMA|EC|MHRA|PMDA)\b.*\b(approved?|approval|authorized|authorization|clearance|clears|EUA|510\(k\))\b/i,
-
-  // NEW: CE Mark approvals (EU commercialization)
+    /\b(FDA|EMA|EC|MHRA|PMDA)\b.*\b(approved?|approval|authorized|authori[sz]ation|clearance|clears|EUA|510\(k\))\b/i,
   ceMark:
-    /\b(CE[- ]?mark(?:ing)?)\b.*\b(approval|approved|granted|obtained)\b/i,
-
+    /\b(CE[- ]?mark(?:ing)?|CE[- ]?certificate)\b.*\b(approval|approved|granted|obtained)\b/i,
   designation:
     /\b(breakthrough therapy|BTD|fast[- ]track|orphan (drug )?designation|PRIME|RMAT)\b/i,
 
-  // NEW: strong preclinical (NHP) signals
+  // Strong preclinical (NHP) + patient-derived neuron early signals
   preclinNHP:
     /\b(non[- ]?human|nonhuman)\s+primate[s]?\b.*\b(well tolerated|tolerability|safety|safe)\b.*\b(higher than|exceed(?:s|ed)|above)\b.*\b(efficacious|effective)\b/i,
-
-  // NEW: early patient-derived neuron signals
   cellModelEarly:
     /\b(patient[- ]derived|iPSC|neurons?|organoid[s]?)\b.*\b(early (signals?|evidence) of (benefit|efficacy)|signal(?:s)? of (benefit|efficacy)|improv(?:e|ed)|rescue)\b/i,
-
-  // NEW: single pivotal pathway wording (e.g., Type C confirms single pivotal Phase 3)
   singlePivotalPathway:
     /\b(single)\s+(pivotal)\b.*\b(phase\s*(iii|3)|trial|pathway)\b/i,
 
@@ -273,13 +266,13 @@ const PAT = {
   earningsBeatGuideUp:
     /\b(raises?|increas(?:es|ed)|hikes?)\b.*\b(guidance|outlook|forecast)\b|\b(beat[s]?)\b.*\b(consensus|estimates|Street|expectations)\b/i,
   indexInclusion:
-    /\b(added|to be added|to join|inclusion|included)\b.*\b(Russell\s?(2000|3000)|MSCI|S&P\s?(500|400|600)|S&P Dow Jones Indices|FTSE)\b/i,
+    /\b(added|to be added|to join|inclusion|included)\b.*\b(Russell\s?(2000|3000)|MSCI|S&P\s?(500|400|600)|S&P Dow Jones Indices|FTSE|Nasdaq[- ]?100)\b/i,
   uplist:
     /\b(uplisting|uplist|approved to list)\b.*\b(Nasdaq|NYSE|NYSE American)\b/i,
   listingCompliance:
     /\b(regain(?:ed|s)?|returns? to|back in)\b.*\b(compliance)\b.*\b(Nasdaq|NYSE|listing)\b/i,
 
-  // NEW: special cash dividend with explicit amount
+  // Special cash dividend with explicit amount
   specialDividend:
     /\b(special (cash )?dividend)\b.*\$\s?\d+(?:\.\d+)?\s*(?:per|\/)\s*share|\b(special (cash )?dividend of)\s*\$\s?\d+(?:\.\d+)?\b/i,
 
@@ -289,9 +282,9 @@ const PAT = {
   memeOrInfluencer:
     /\b(Roaring Kitty|Keith Gill|meme stock|wallstreetbets|WSB|short squeeze|Jensen Huang|Nvidia (blog|mention))\b/i,
 
-  // Name-drop only context
+  // Name-drop only context (explicitly *not* partnerships)
   nameDropContext:
-    /\b(mention(?:ed)?|blog|keynote|showcase|featured|ecosystem|catalog|marketplace)\b/i,
+    /\b(mention(?:ed)?|blog|keynote|showcase|featured|ecosystem|catalog|marketplace|listing)\b/i,
 
   // Low-impact blocks
   proxyAdvisor:
@@ -307,7 +300,7 @@ const PAT = {
   investorConfs:
     /\b(participat(e|es|ing)|to participate|will participate)\b.*\b(investor (?:conference|conferences)|conference|fireside chat|non-deal roadshow)\b/i,
 
-  // NEW: misinformation / unauthorized PR guard
+  // Misinformation / unauthorized PR guard
   misinfo:
     /\b(misinformation|unauthorized (press )?release|retracts? (?:a )?press release|clarif(?:y|ies) misinformation)\b/i,
 
@@ -335,7 +328,7 @@ const PAT = {
   bidAuction:
     /\b(bid|proposal)\b.*\b(auction|court[- ]supervised|bankruptcy)\b/i,
   govRoutine:
-    /\b(continued production|follow[- ]on|option (exercise|exercised)|extension|renewal)\b/i,
+    /\b(continued production|follow[- ]on|followon|option (exercise|exercised)|extension|renewal)\b/i,
   typoErratum: /\b(typo|erratum|correction|corrects|amended release)\b/i,
 
   // Crypto / treasury catalysts
@@ -401,8 +394,8 @@ function classifyOne(it: RawItem): { event: HighImpactEvent; score: number } {
       10,
       "approval"
     );
+    // AdCom
     push(PAT.adcom.test(x), "FDA_ADCOM_POSITIVE", 8, "adcom_positive");
-
     // Pivotal/topline/mid-stage wins
     push(
       PAT.pivotal.test(x) || PAT.topline.test(x) || PAT.midStageWin.test(x),
@@ -410,20 +403,18 @@ function classifyOne(it: RawItem): { event: HighImpactEvent; score: number } {
       9,
       "pivotal_topline_or_midstage"
     );
-
+    // Designations
     push(PAT.designation.test(x), "REGULATORY_DESIGNATION", 6, "designation");
   }
 
-  // Strong preclinical / cell model signals
+  // Strong preclinical / cell model signals (can be off-wire)
   if (PAT.preclinNHP.test(x))
     push(true, "PIVOTAL_TRIAL_SUCCESS", 6, "preclinical_nhp_strong");
-
   if (PAT.cellModelEarly.test(x)) {
     const w = HOT_DISEASE_RX.test(x) ? 6 : 5;
     push(true, "PIVOTAL_TRIAL_SUCCESS", w, "cell_model_early_signal");
   }
-
-  // Single pivotal pathway booster (e.g., Type C confirms single pivotal Phase 3)
+  // “Single pivotal pathway” booster
   if (PAT.singlePivotalPathway.test(x))
     push(true, "PIVOTAL_TRIAL_SUCCESS", 5, "single_pivotal_pathway");
 
@@ -464,6 +455,7 @@ function classifyOne(it: RawItem): { event: HighImpactEvent; score: number } {
       push(true, "MAJOR_GOV_CONTRACT", 8, "gov_contract");
     if (isPR && govContract && PAT.govRoutine.test(x))
       push(true, "OTHER", 2, "gov_routine");
+
     push(govEquity, "GOVERNMENT_EQUITY_OR_GRANT", 9, "gov_equity");
 
     const nameDropOnly =
@@ -540,13 +532,17 @@ function classifyOne(it: RawItem): { event: HighImpactEvent; score: number } {
   // Synergies / boosters
   if (by.has("PIVOTAL_TRIAL_SUCCESS") && by.has("FDA_MARKETING_AUTH"))
     by.set("FDA_MARKETING_AUTH", (by.get("FDA_MARKETING_AUTH") ?? 0) + 3);
+
+  // Big scale money + Tier1/gov/eq → amplify
+  const hasScaleMoney = LARGE_DOLLARS.test(x) || SCALE.test(x);
   if (
     (by.has("TIER1_PARTNERSHIP") ||
       by.has("MAJOR_GOV_CONTRACT") ||
       by.has("GOVERNMENT_EQUITY_OR_GRANT")) &&
-    (LARGE_DOLLARS.test(x) || SCALE.test(x))
-  )
+    hasScaleMoney
+  ) {
     by.set("OTHER", (by.get("OTHER") ?? 0) + 2);
+  }
 
   const total = [...by.values()].reduce((a, b) => a + b, 0);
   const strongCatalyst =

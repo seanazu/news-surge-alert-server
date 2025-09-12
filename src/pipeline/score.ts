@@ -88,7 +88,7 @@ const RX_510K = /\b(FDA)\b.*\b(510\(k\)|510k)\b.*\b(clearance|clears?)\b/i;
 const RX_SUPPLEMENTAL =
   /\b(expanded indication|label (expansion|extension)|supplemental (s?NDA|s?BLA)|sNDA|sBLA)\b/i;
 
-/** Process / conference guards unless strong outcomes */
+/** Process / conference guards unless strong outcomes or explicit endpoint met in journals */
 const RX_REG_PROCESS =
   /\b(Type\s*(A|B|C)\s*meeting|End of Phase\s*(2|II)|EOP2|pre[- ](IND|NDA|BLA)|meeting (minutes|with FDA))\b/i;
 const RX_JOURNAL =
@@ -137,7 +137,7 @@ const RX_CRYPTO_TREASURY_DISCUSS =
   /\b(treasury|reserve|policy|program|strategy)\b.*\b(discuss(?:ions?)?|approached|proposal|term sheet|non[- ]binding|indicative)\b.*\b(\$?\d+(?:\.\d+)?\s*(?:million|billion))\b/i;
 
 /** Index inclusion (major vs minor) */
-const RX_INDEX_MAJOR = /\b(S&P\s?(500|400|600)|MSCI|FTSE)\b/i;
+const RX_INDEX_MAJOR = /\b(S&P\s?(500|400|600)|MSCI|FTSE|Nasdaq[- ]?100)\b/i;
 const RX_INDEX_MINOR =
   /\b(Russell\s?(2000|3000)|S&P\/?TSX Composite|TSX Composite|TSX Venture|TSXV|CSE Composite)\b/i;
 
@@ -149,7 +149,7 @@ const RX_MEDIA_INTERVIEW =
 const RX_BUYBACK_DIV =
   /\b(share repurchase|buyback|dividend (declaration|increase|initiation))\b/i;
 
-// Strategic alternatives (e.g., "company exploring strategic alternatives")
+// Strategic alternatives
 const RX_STRAT_ALTS =
   /\b(strategic alternatives?|exploring (alternatives|options)|review of strategic alternatives|considering strategic alternatives)\b/i;
 
@@ -165,7 +165,7 @@ const TIER1_RX = new RegExp(
 const RX_LISTING_COMPLIANCE =
   /\b(regain(?:ed|s)?|returns? to|back in)\b.*\b(compliance)\b.*\b(Nasdaq|NYSE|listing)\b/i;
 
-// NEW: preclinical signals
+// Preclinical signals
 const RX_PRECLIN_NHP =
   /\b(non[- ]?human|nonhuman)\s+primate[s]?\b.*\b(well tolerated|tolerability|safety|safe)\b.*\b(higher than|exceed(?:s|ed)|above)\b.*\b(efficacious|effective)\b/i;
 const RX_CELL_MODEL =
@@ -173,11 +173,11 @@ const RX_CELL_MODEL =
 const RX_HOT_DISEASE =
   /\b(Alzheimer'?s|ALS|Parkinson'?s|Huntington'?s|multiple sclerosis|MS\b|glioblastoma|GBM|pancreatic cancer)\b/i;
 
-// NEW: special dividend (explicit amount)
+// Special dividend (explicit amount)
 const RX_SPECIAL_DIVIDEND =
   /\b(special (cash )?dividend)\b.*\$\s?\d+(?:\.\d+)?\s*(?:per|\/)\s*share|\b(special (cash )?dividend of)\s*\$\s?\d+(?:\.\d+)?\b/i;
 
-// NEW: misinformation / unauthorized PR
+// Misinformation / unauthorized PR
 const RX_MISINFO =
   /\b(misinformation|unauthorized (press )?release|retracts? (?:a )?press release|clarif(?:y|ies) misinformation)\b/i;
 
@@ -194,7 +194,7 @@ export function score(items: ClassifiedItem[]): ClassifiedItem[] {
     // 1) Baseline
     let s = BASELINE[it.klass] ?? BASELINE.OTHER;
 
-    // 2) Early caps for the specific false-positive cohorts
+    // 2) Early caps for frequent non-catalysts
     if (RX_PROXY_ADVISOR.test(blob) || RX_VOTE_ADMIN_ONLY.test(blob))
       s = Math.min(s, 0.2);
     if (RX_LAWFIRM.test(blob)) s = Math.min(s, 0.12);
@@ -215,7 +215,9 @@ export function score(items: ClassifiedItem[]): ClassifiedItem[] {
 
     // 3) Dilutive financing suppression (unless clear positives)
     const isPlainDilutive =
-      RX_FINANCING_DILUTIVE.test(blob) &&
+      /\b(securities purchase agreement|SPA|registered direct|PIPE|private placement|unit (offering|financing)|equity (offering|raise)|convertible (note|debenture|security)|warrants?)\b/i.test(
+        blob
+      ) &&
       !(
         RX_FINANCING_PREMIUM.test(blob) ||
         RX_FINANCING_STRATEGIC.test(blob) ||
@@ -229,10 +231,15 @@ export function score(items: ClassifiedItem[]): ClassifiedItem[] {
       else if (RX_MID_STAGE_WIN.test(blob)) s += 0.05;
       if (!RX_TOPLINE_STRONG.test(blob)) s -= 0.05;
 
-      // NEW: preclinical boosts
+      // Preclinical boosts
       if (RX_PRECLIN_NHP.test(blob)) s += 0.06;
       if (RX_CELL_MODEL.test(blob))
         s += RX_HOT_DISEASE.test(blob) ? 0.06 : 0.04;
+
+      // Journal synergy: NEJM/Lancet + explicit endpoint/met p-value
+      const journalStrong =
+        RX_JOURNAL.test(blob) && RX_TOPLINE_STRONG.test(blob);
+      if (journalStrong) s += 0.04;
     }
 
     // 5) Approvals split (cap lighter EU/510k/supplemental)
@@ -270,7 +277,7 @@ export function score(items: ClassifiedItem[]): ClassifiedItem[] {
         s = Math.min(s, 0.4);
     }
 
-    // 8) Gov contracts routine follow-on cap
+    // 8) Gov contracts: routine follow-on cap
     if (
       String(it.klass) === "MAJOR_GOV_CONTRACT" &&
       /\b(continued production|follow[- ]on|followon|option (exercise|exercised)|extension|renewal)\b/i.test(
@@ -279,7 +286,7 @@ export function score(items: ClassifiedItem[]): ClassifiedItem[] {
     )
       s = Math.min(s, 0.48);
 
-    // 9) Index inclusion split — treat Russell as MINOR (cap)
+    // 9) Index inclusion: major vs minor
     if (String(it.klass) === "INDEX_INCLUSION") {
       if (RX_INDEX_MAJOR.test(blob)) s += 0.04;
       if (RX_INDEX_MINOR.test(blob)) s = Math.min(s, 0.4);
@@ -299,7 +306,7 @@ export function score(items: ClassifiedItem[]): ClassifiedItem[] {
       label === "INDEX_INCLUSION" ||
       label === "UPLISTING_TO_NASDAQ";
 
-    // Do not penalize off-wire when it's definitive M&A or a real Tier-1 “powered by/adopts/integrates/selects”
+    // Off-wire allowed when (a) definitive M&A or (b) Tier-1 powered-by verbs
     const tier1Powered = TIER1_RX.test(blob) && RX_TIER1_VERBS.test(blob);
     if (wireSensitive) {
       const definitiveMnaOffWire =
@@ -328,7 +335,7 @@ export function score(items: ClassifiedItem[]): ClassifiedItem[] {
 
     // 12) Generic results cap unless beat/raise OR strong exceptions
     const pctMatch = blob.match(
-      /\b(revenue|sales|eps|earnings|arr|bookings|net income)\b[^.%]{0,80}?\b(up|increase[sd]?|grow[n|th|s]?|jump(?:ed)?|soar(?:ed)?|surged)\b[^%]{0,20}?(\d{2,3})\s?%/i
+      /\b(revenue|sales|eps|earnings|arr|bookings|net income)\b[^.%]{0,90}?\b(up|increase[sd]?|grow[n|th|s]?|jump(?:ed)?|soar(?:ed)?|surged)\b[^%]{0,25}?(\d{2,3})\s?%(\s*(y\/y|yoy|year[- ]over[- ]year|q\/q|qoq))?/i
     );
     const hasBigPct = pctMatch?.[3]
       ? !isNaN(parseInt(pctMatch[3], 10)) && parseInt(pctMatch[3], 10) >= 50
