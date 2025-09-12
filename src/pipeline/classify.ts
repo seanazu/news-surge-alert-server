@@ -1,11 +1,4 @@
-// Dependency-free rules tuned for high-pop catalysts.
-// NEW in this version:
-// - NHP/preclinical strong signals (e.g., well tolerated > efficacious dose)
-// - Early signals in patient-derived neurons (esp. Alzheimer’s, ALS, etc.)
-// - Special cash dividend with explicit amount
-// - Misinformation / unauthorized press-release guard
-// - Tier-1 “powered by / adopts / integrates / selects” kept from prior rev
-
+// src/pipeline/classify.ts
 import type { RawItem, ClassifiedItem, EventClass } from "../types.js";
 
 /** Events commonly behind ≥40–50% single-day pops. */
@@ -219,24 +212,40 @@ const swingToProfit = (x: string) =>
 
 /* ---------- Patterns ---------- */
 const PAT = {
-  // Bio / clinical
+  // Bio / clinical (registrational / pivotal / topline)
   pivotal:
     /\b(phase\s*(iii|3)|pivotal|registrational)\b.*\b(success|met (?:the )?primary endpoint|statistically significant)\b/i,
   topline:
     /\b(top-?line)\b.*\b(positive|met (?:the )?primary endpoint|statistically significant)\b/i,
+
+  // NEW: mid-stage win (to classify strong Phase 2 results)
+  midStageWin:
+    /\b(phase\s*(ii|2)|mid[- ]stage)\b.*\b(win|successful|success|met|achieved|statistically significant|primary endpoint)\b/i,
+
   adcom:
     /\b(advisory (committee|panel)|adcom)\b.*\b(vote|voted|recommends?)\b/i,
+
   approval:
     /\b(FDA|EMA|EC|MHRA|PMDA)\b.*\b(approved?|approval|authorized|authorization|clearance|clears|EUA|510\(k\))\b/i,
+
+  // NEW: CE Mark approvals (EU commercialization)
+  ceMark:
+    /\b(CE[- ]?mark(?:ing)?)\b.*\b(approval|approved|granted|obtained)\b/i,
+
   designation:
     /\b(breakthrough therapy|BTD|fast[- ]track|orphan (drug )?designation|PRIME|RMAT)\b/i,
 
   // NEW: strong preclinical (NHP) signals
   preclinNHP:
     /\b(non[- ]?human|nonhuman)\s+primate[s]?\b.*\b(well tolerated|tolerability|safety|safe)\b.*\b(higher than|exceed(?:s|ed)|above)\b.*\b(efficacious|effective)\b/i,
+
   // NEW: early patient-derived neuron signals
   cellModelEarly:
     /\b(patient[- ]derived|iPSC|neurons?|organoid[s]?)\b.*\b(early (signals?|evidence) of (benefit|efficacy)|signal(?:s)? of (benefit|efficacy)|improv(?:e|ed)|rescue)\b/i,
+
+  // NEW: single pivotal pathway wording (e.g., Type C confirms single pivotal Phase 3)
+  singlePivotalPathway:
+    /\b(single)\s+(pivotal)\b.*\b(phase\s*(iii|3)|trial|pathway)\b/i,
 
   // M&A (binding allowed off-wire if definitive + price/value present)
   mnaBinding:
@@ -385,26 +394,38 @@ function classifyOne(it: RawItem): { event: HighImpactEvent; score: number } {
 
   // Bio / regulatory (wire preferred)
   if (isPR) {
-    push(PAT.approval.test(x), "FDA_MARKETING_AUTH", 10, "approval");
-    push(PAT.adcom.test(x), "FDA_ADCOM_POSITIVE", 8, "adcom_positive");
+    // Approvals incl. CE Mark
     push(
-      PAT.pivotal.test(x) || PAT.topline.test(x),
+      PAT.approval.test(x) || PAT.ceMark.test(x),
+      "FDA_MARKETING_AUTH",
+      10,
+      "approval"
+    );
+    push(PAT.adcom.test(x), "FDA_ADCOM_POSITIVE", 8, "adcom_positive");
+
+    // Pivotal/topline/mid-stage wins
+    push(
+      PAT.pivotal.test(x) || PAT.topline.test(x) || PAT.midStageWin.test(x),
       "PIVOTAL_TRIAL_SUCCESS",
       9,
-      "pivotal_or_topline"
+      "pivotal_topline_or_midstage"
     );
+
     push(PAT.designation.test(x), "REGULATORY_DESIGNATION", 6, "designation");
   }
 
-  // NEW: strong preclinical / NHP signal ⇒ modest PIVOTAL bucket
+  // Strong preclinical / cell model signals
   if (PAT.preclinNHP.test(x))
     push(true, "PIVOTAL_TRIAL_SUCCESS", 6, "preclinical_nhp_strong");
 
-  // NEW: patient-derived neuron early signal (boost if hot disease is mentioned)
   if (PAT.cellModelEarly.test(x)) {
     const w = HOT_DISEASE_RX.test(x) ? 6 : 5;
     push(true, "PIVOTAL_TRIAL_SUCCESS", w, "cell_model_early_signal");
   }
+
+  // Single pivotal pathway booster (e.g., Type C confirms single pivotal Phase 3)
+  if (PAT.singlePivotalPathway.test(x))
+    push(true, "PIVOTAL_TRIAL_SUCCESS", 5, "single_pivotal_pathway");
 
   // M&A: allow off-wire if definitive language + per-share/valuation present
   {
@@ -482,7 +503,7 @@ function classifyOne(it: RawItem): { event: HighImpactEvent; score: number } {
     );
   }
 
-  // NEW: special cash dividend (explicit per-share amount)
+  // Special cash dividend (explicit per-share amount)
   if (PAT.specialDividend.test(x))
     push(true, "RESTRUCTURING_OR_FINANCING", 7, "special_dividend");
 

@@ -1,10 +1,4 @@
-// Scoring aligned with the classifier.
-// NEW in this version:
-// - Boost preclinical NHP & patient-derived neuron signals (esp. hot diseases)
-// - Boost “special cash dividend” (explicit per-share amount) and avoid dividend cap
-// - Suppress misinformation/unauthorized PRs
-// - Keep earlier improvements: compliance regained, Tier-1 powered-by verbs, etc.
-
+// src/pipeline/score.ts
 import type { ClassifiedItem } from "../types.js";
 
 /** Baseline impact by classified event (higher = more likely to cause large pops). */
@@ -83,7 +77,7 @@ const RX_EARNINGS_BEAT =
 /** Bio trial/strong-topline cues */
 const RX_PIVOTAL = /\b(phase\s*(iii|3)|late-?stage|pivotal|registrational)\b/i;
 const RX_MID_STAGE_WIN =
-  /\b(phase\s*(ii|2)|mid[- ]stage)\b.*\b(win|successful|success|met|achieved|statistically significant)\b/i;
+  /\b(phase\s*(ii|2)|mid[- ]stage)\b.*\b(win|successful|success|met|achieved|statistically significant|primary endpoint)\b/i;
 const RX_TOPLINE_STRONG =
   /\b(top-?line|primary endpoint (met|achieved)|statistically significant|p<\s*0?\.\d+)\b/i;
 
@@ -241,7 +235,7 @@ export function score(items: ClassifiedItem[]): ClassifiedItem[] {
         s += RX_HOT_DISEASE.test(blob) ? 0.06 : 0.04;
     }
 
-    // 5) Approvals split
+    // 5) Approvals split (cap lighter EU/510k/supplemental)
     if (String(it.klass) === "FDA_MARKETING_AUTH") {
       if (RX_CE_MARK.test(blob)) s = Math.min(s, 0.46);
       if (RX_510K.test(blob)) s = Math.min(s, 0.46);
@@ -250,7 +244,9 @@ export function score(items: ClassifiedItem[]): ClassifiedItem[] {
 
     // 6) Process/journal/conference guards (unless strong outcomes)
     const hasStrongOutcome =
-      RX_TOPLINE_STRONG.test(blob) || RX_PIVOTAL.test(blob);
+      RX_TOPLINE_STRONG.test(blob) ||
+      RX_PIVOTAL.test(blob) ||
+      RX_MID_STAGE_WIN.test(blob);
     if (!hasStrongOutcome) {
       if (RX_REG_PROCESS.test(blob)) s = Math.min(s, 0.42);
       if (RX_JOURNAL.test(blob)) s = Math.min(s, 0.42);
