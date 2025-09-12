@@ -106,8 +106,8 @@ export async function hasVeryUnusualVolume(
 ): Promise<boolean> {
   const {
     lookbackSessionCount = 20,
-    ratioThreshold = 4.0,
-    zScoreThreshold = 4.0,
+    ratioThreshold = 3.0,
+    zScoreThreshold = 3.5,
     maxRetryAttempts = 3,
   } = options;
 
