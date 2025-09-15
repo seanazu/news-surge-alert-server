@@ -102,14 +102,14 @@ async function newsCycle() {
         continue;
       }
 
-      const hasUnusualVolume = await hasVeryUnusualVolume(symbol);
-      if (!hasUnusualVolume) {
-        log.info("[POLY] skip (no unusual volume)", {
-          symbol,
-          title: item.title,
-        });
-        continue;
-      }
+      // const hasUnusualVolume = await hasVeryUnusualVolume(symbol);
+      // if (!hasUnusualVolume) {
+      //   log.info("[POLY] skip (no unusual volume)", {
+      //     symbol,
+      //     title: item.title,
+      //   });
+      //   continue;
+      // }
 
       const hash = eventDb.makeHash({
         title: item.title,
