@@ -14,7 +14,7 @@ const BASELINE: Record<string, number> = {
   IPO_DEBUT_POP: 0.55,
   COURT_WIN_INJUNCTION: 0.56,
   MEME_OR_INFLUENCER: 0.5,
-  RESTRUCTURING_OR_FINANCING: 0.5,
+  RESTRUCTURING_OR_FINANCING: 0.5, // crypto treasury bumps handled below
   POLICY_OR_POLITICS_TAILWIND: 0.44,
   EARNINGS_BEAT_OR_GUIDE_UP: 0.52,
   INDEX_INCLUSION: 0.5,
@@ -23,7 +23,8 @@ const BASELINE: Record<string, number> = {
 };
 
 /* --- Lightweight cues --- */
-const LARGE_DOLLAR_AMOUNT = /\$?\s?(?:\d{2,4})\s*(?:million|billion)\b/i;
+const LARGE_DOLLAR_AMOUNT =
+  /\$?\s?(?:\d{2,4})\s*(?:million|billion|bn|mm|m)\b/i;
 const SUPERLATIVE_WORDS =
   /\b(record|unprecedented|all-time|exclusive|breakthrough|pivotal)\b/i;
 const BIG_MOVE_WORDS = /\b(double|doubled|triple|tripled)\b/i;
@@ -81,14 +82,12 @@ const RX_MID_STAGE_WIN =
 const RX_TOPLINE_STRONG =
   /\b(top-?line|primary endpoint (met|achieved)|statistically significant|p<\s*0?\.\d+)\b/i;
 
-/** Regulatory variants */
+/** Regulatory variants & process */
 const RX_CE_MARK =
   /\b(CE[- ]mark|CE[- ]marking|CE[- ]certificate)\b.*\b(approval|approved|granted|obtained)\b/i;
 const RX_510K = /\b(FDA)\b.*\b(510\(k\)|510k)\b.*\b(clearance|clears?)\b/i;
 const RX_SUPPLEMENTAL =
   /\b(expanded indication|label (expansion|extension)|supplemental (s?NDA|s?BLA)|sNDA|sBLA)\b/i;
-
-/** Process / conference guards unless strong outcomes or explicit endpoint met in journals */
 const RX_REG_PROCESS =
   /\b(Type\s*(A|B|C)\s*meeting|End of Phase\s*(2|II)|EOP2|pre[- ](IND|NDA|BLA)|meeting (minutes|with FDA))\b/i;
 const RX_JOURNAL =
@@ -96,12 +95,18 @@ const RX_JOURNAL =
 const RX_CONFERENCE =
   /\b(presents?|presented|to present|poster|abstract|oral presentation)\b.*\b(conference|congress|symposium|meeting)\b/i;
 
+/** New: NDA/BLA acceptance / Priority Review + Clinical hold lift */
+const RX_NDA_ACCEPT_PRIORITY =
+  /\b(FDA|EMA|MHRA|PMDA)\b.*\b(accepts?|accepted)\b.*\b(NDA|BLA|MAA)\b|\b(priority review)\b/i;
+const RX_CLINICAL_HOLD_LIFT =
+  /\b(FDA)\b.*\b(lifts?|lifted|removes?|removed)\b.*\b(clinical hold)\b/i;
+
 /** M&A specifics */
 const RX_MNA_DEFINITIVE =
-  /\b(definitive (merger|agreement|deal)|merger agreement (executed|signed)|entered into (a )?definitive (agreement|merger))\b/i;
+  /\b(definitive (merger|agreement|deal)|merger agreement (executed|signed)|enter(?:s|ed)? into (a )?definitive (agreement|merger)|business combination( agreement)?|amalgamation agreement|plan of merger)\b/i;
 const RX_MNA_WILL_ACQUIRE = /\b(will|to)\s+acquire\b|\bto be acquired\b/i;
 const RX_MNA_PERPRICE =
-  /\$\s?\d+(?:\.\d+)?\s*(?:per|\/)\s*share\b|(?:deal|transaction|enterprise|equity)\s+value(?:d)?\s+at\s+\$?\d+(?:\.\d+)?\s*(?:million|billion)\b/i;
+  /\$\s?\d+(?:\.\d+)?\s*(?:per|\/)\s*share\b|(?:deal|transaction|enterprise|equity)\s+value(?:d)?\s+at\s+\$?\d+(?:\.\d+)?\s*(?:million|billion|bn|mm|m)\b/i;
 const RX_MNA_TENDER =
   /\b(tender offer|exchange offer|commence(s|d)? (an )?offer)\b/i;
 const RX_MNA_REVISED =
@@ -134,7 +139,14 @@ const RX_ANTI_DILUTION_POS =
 const RX_CRYPTO_TREASURY_BUY =
   /\b(buy|bought|purchase[sd]?|acquire[sd]?)\b.*\b(Bitcoin|BTC|Ethereum|ETH|Solana|SOL|LINK|Chainlink|crypto(?:currency)?|tokens?)\b/i;
 const RX_CRYPTO_TREASURY_DISCUSS =
-  /\b(treasury|reserve|policy|program|strategy)\b.*\b(discuss(?:ions?)?|approached|proposal|term sheet|non[- ]binding|indicative)\b.*\b(\$?\d+(?:\.\d+)?\s*(?:million|billion))\b/i;
+  /\b(treasury|reserve|policy|program|strategy)\b.*\b(discuss(?:ions?)?|approached|proposal|term sheet|non[- ]binding|indicative)\b.*\b(\$?\d+(?:\.\d+)?\s*(?:million|billion|bn|mm|m))\b/i;
+/** New: “launch/adopt/initiate/implement/convert cash to” BTC treasury program */
+const RX_CRYPTO_TREASURY_INITIATE =
+  /\b(launch(?:es|ed)?|initiat(?:es|ed|ing)|adopt(?:s|ed|ing)|establish(?:es|ed|ing)|implement(?:s|ed|ing)|convert(?:s|ed|ing)\s+(?:a |portion of )?cash\s+(?:to|into))\b[^.]{0,120}\b(Bitcoin|BTC)\b[^.]{0,120}\b(treasury|reserve)\b[^.]{0,120}\b(strategy|program|policy|framework|asset)\b/i;
+
+/** Reimbursement / policy tailwinds */
+const RX_REIMBURSEMENT =
+  /\b(CMS|Medicare)\b.*\b(NTAP|new (technology|tech) add[- ]on payment|transitional pass[- ]through|TPT|HCPCS(?:\s*code)?\s*[A-Z0-9]+)\b/i;
 
 /** Index inclusion (major vs minor) */
 const RX_INDEX_MAJOR = /\b(S&P\s?(500|400|600)|MSCI|FTSE|Nasdaq[- ]?100)\b/i;
@@ -181,6 +193,11 @@ const RX_SPECIAL_DIVIDEND =
 const RX_MISINFO =
   /\b(misinformation|unauthorized (press )?release|retracts? (?:a )?press release|clarif(?:y|ies) misinformation)\b/i;
 
+/** New: purchase orders and legal settlements with royalties */
+const RX_PURCHASE_ORDER = /\b(purchase order|PO)\b/i;
+const RX_LEGAL_SETTLEMENT_ROYALTIES =
+  /\b(settlement|settles)\b.*\b(royalt(?:y|ies)|minimum payments?|licensing revenue|lump[- ]sum)\b/i;
+
 export function score(items: ClassifiedItem[]): ClassifiedItem[] {
   return items.map((it) => {
     const blob = `${it.title ?? ""} ${it.summary ?? ""}`;
@@ -215,9 +232,7 @@ export function score(items: ClassifiedItem[]): ClassifiedItem[] {
 
     // 3) Dilutive financing suppression (unless clear positives)
     const isPlainDilutive =
-      /\b(securities purchase agreement|SPA|registered direct|PIPE|private placement|unit (offering|financing)|equity (offering|raise)|convertible (note|debenture|security)|warrants?)\b/i.test(
-        blob
-      ) &&
+      RX_FINANCING_DILUTIVE.test(blob) &&
       !(
         RX_FINANCING_PREMIUM.test(blob) ||
         RX_FINANCING_STRATEGIC.test(blob) ||
@@ -240,6 +255,10 @@ export function score(items: ClassifiedItem[]): ClassifiedItem[] {
       const journalStrong =
         RX_JOURNAL.test(blob) && RX_TOPLINE_STRONG.test(blob);
       if (journalStrong) s += 0.04;
+
+      // New: NDA/BLA acceptance or Priority Review, and clinical-hold lift
+      if (RX_NDA_ACCEPT_PRIORITY.test(blob)) s += 0.04;
+      if (RX_CLINICAL_HOLD_LIFT.test(blob)) s += 0.05;
     }
 
     // 5) Approvals split (cap lighter EU/510k/supplemental)
@@ -320,20 +339,34 @@ export function score(items: ClassifiedItem[]): ClassifiedItem[] {
       }
     }
 
-    // 11) Crypto treasury — allow without capital raise
+    // 11) Crypto treasury — buy/discuss/initiate
     const isCryptoBuy = RX_CRYPTO_TREASURY_BUY.test(blob);
     const isCryptoDiscuss = RX_CRYPTO_TREASURY_DISCUSS.test(blob);
+    const isCryptoInitiate = RX_CRYPTO_TREASURY_INITIATE.test(blob);
     if (
       label === "RESTRUCTURING_OR_FINANCING" ||
       isCryptoBuy ||
-      isCryptoDiscuss
+      isCryptoDiscuss ||
+      isCryptoInitiate
     ) {
       if (isCryptoBuy) s += 0.14;
+      if (isCryptoInitiate) s += 0.12;
       if (isCryptoDiscuss) s += 0.1;
       if (LARGE_DOLLAR_AMOUNT.test(blob)) s += 0.04;
     }
 
-    // 12) Generic results cap unless beat/raise OR strong exceptions
+    // 12) Reimbursement / policy tailwinds boost
+    if (
+      label === "POLICY_OR_POLITICS_TAILWIND" &&
+      RX_REIMBURSEMENT.test(blob)
+    ) {
+      s += 0.06;
+    }
+
+    // 13) Index + Uplist wire small bump handled above; add listing compliance bump
+    if (RX_LISTING_COMPLIANCE.test(blob)) s += 0.12;
+
+    // 14) Earnings: generic results cap unless beat/raise OR strong exceptions
     const pctMatch = blob.match(
       /\b(revenue|sales|eps|earnings|arr|bookings|net income)\b[^.%]{0,90}?\b(up|increase[sd]?|grow[n|th|s]?|jump(?:ed)?|soar(?:ed)?|surged)\b[^%]{0,25}?(\d{2,3})\s?%(\s*(y\/y|yoy|year[- ]over[- ]year|q\/q|qoq))?/i
     );
@@ -350,16 +383,30 @@ export function score(items: ClassifiedItem[]): ClassifiedItem[] {
       else s = Math.min(s, 0.32);
     }
 
-    // 13) Positive financing exception
+    // 15) Positive financing exception
     if (RX_ANTI_DILUTION_POS.test(blob)) s += 0.12;
 
-    // 14) Listing compliance regained
-    if (RX_LISTING_COMPLIANCE.test(blob)) s += 0.12;
+    // 16) Special cash dividend (explicit amount)
+    const isSpecialDiv = RX_SPECIAL_DIVIDEND.test(blob);
+    if (isSpecialDiv) s += 0.14;
 
-    // 15) Special cash dividend (explicit amount)
-    if (isSpecialDividend) s += 0.14;
+    // 17) Legal settlement with royalties / minimum payments (often needle-moving for micros)
+    if (
+      label === "COURT_WIN_INJUNCTION" &&
+      RX_LEGAL_SETTLEMENT_ROYALTIES.test(blob)
+    ) {
+      s += 0.06;
+    }
 
-    // 16) Generic boosters
+    // 18) PO (purchase order) – small bump when meaningful scale or Tier-1 context
+    if (
+      (label === "TIER1_PARTNERSHIP" || label === "MAJOR_GOV_CONTRACT") &&
+      RX_PURCHASE_ORDER.test(blob)
+    ) {
+      if (LARGE_DOLLAR_AMOUNT.test(blob) || TIER1_RX.test(blob)) s += 0.04;
+    }
+
+    // 19) Generic boosters
     const isSmallCap =
       (it.marketCap ?? 0) > 0 && (it.marketCap as number) < 1_000_000_000; // <$1B
     if (isSmallCap) s += 0.14;
