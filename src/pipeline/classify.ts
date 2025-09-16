@@ -21,7 +21,7 @@ export type HighImpactEvent =
   | "UPLISTING_TO_NASDAQ"
   | "OTHER";
 
-/** Tier-1 counterparties (exact list you provided). */
+/** Tier-1 counterparties (expanded). */
 const TIER1_COUNTERPARTIES: string[] = [
   "Nvidia",
   "Microsoft",
@@ -147,6 +147,32 @@ const TIER1_COUNTERPARTIES: string[] = [
   "Deere",
   "GE",
   "Honeywell",
+  "Disney",
+  "Netflix",
+  "Comcast",
+  "NBCUniversal",
+  "Warner Bros. Discovery",
+  "Paramount",
+  "Visa",
+  "Mastercard",
+  "PayPal",
+  "American Express",
+  "Verizon",
+  "AT&T",
+  "T-Mobile",
+  "Uber",
+  "Lyft",
+  "DoorDash",
+  "Instacart",
+  "SAP",
+  "Databricks",
+  "Anthropic",
+  "Cohere",
+  "Epic Games",
+  "Unity",
+  "Nintendo",
+  "Red Hat",
+  "GitHub",
 ];
 
 /* ---------- Utils ---------- */
@@ -164,7 +190,7 @@ const TIER1_RX = new RegExp(
   "i"
 );
 
-/** “True PR” gate: major wire hosts or boilerplate tokens; allow issuer IR. */
+/** “True PR” gate: major wire hosts or issuer IR. */
 const WIRE_HOSTS = new Set([
   "www.prnewswire.com",
   "www.globenewswire.com",
@@ -197,7 +223,6 @@ const HOT_DISEASE_RX =
 
 const RECORD_SALES_RX = /\brecord\b[^.]{0,40}\b(revenue|sales)\b/i;
 function hasBigPercentGrowth(x: string): boolean {
-  // Allow "up 55% y/y", "increased 60 percent", "grew 70% year-over-year"
   const m = x.match(
     /\b(revenue|sales|eps|earnings|arr|bookings|net income)\b[^.%]{0,90}?\b(up|increase[sd]?|grow[n|th|s]?|jump(?:ed)?|soar(?:ed)?|surged)\b[^%]{0,25}?(\d{2,3})\s?%(\s*(y\/y|yoy|year[- ]over[- ]year|q\/q|qoq))?/i
   );
@@ -214,7 +239,7 @@ const swingToProfit = (x: string) =>
 
 /* ---------- Patterns ---------- */
 const PAT = {
-  // Bio / clinical (registrational / pivotal / topline / mid-stage)
+  // Bio / clinical (registrational / topline / mid-stage)
   pivotal:
     /\b(phase\s*(iii|3)|pivotal|registrational|late[- ]stage)\b.*\b(success|met (?:the )?primary endpoint|statistically significant|p<\s*0?\.\d+)\b/i,
   topline:
@@ -231,14 +256,12 @@ const PAT = {
     /\b(CE[- ]?mark(?:ing)?|CE[- ]?certificate)\b.*\b(approval|approved|granted|obtained)\b/i,
   designation:
     /\b(breakthrough therapy|BTD|fast[- ]track|orphan (drug )?designation|PRIME|RMAT)\b/i,
-  // NDA/BLA acceptance / Priority Review (often big for micro-caps)
   ndaAcceptOrPriority:
     /\b(FDA|EMA|MHRA|PMDA)\b.*\b(accepts?|accepted)\b.*\b(NDA|BLA|MAA)\b|\b(priority review)\b/i,
-  // Clinical hold lift
   clinicalHoldLift:
     /\b(FDA)\b.*\b(lifts?|lifted|removes?|removed)\b.*\b(clinical hold)\b/i,
 
-  // Strong preclinical (NHP) + patient-derived neuron early signals
+  // Strong preclinical / cell model signals
   preclinNHP:
     /\b(non[- ]?human|nonhuman)\s+primate[s]?\b.*\b(well tolerated|tolerability|safety|safe)\b.*\b(higher than|exceed(?:s|ed)|above)\b.*\b(efficacious|effective)\b/i,
   cellModelEarly:
@@ -246,7 +269,7 @@ const PAT = {
   singlePivotalPathway:
     /\b(single)\s+(pivotal)\b.*\b(phase\s*(iii|3)|trial|pathway)\b/i,
 
-  // M&A (binding allowed off-wire if definitive + price/value present)
+  // M&A (binding allowed off-wire if definitive language + per-share/valuation present)
   mnaBinding:
     /\b(definitive (agreement|merger)|merger agreement (executed|signed)|enter(?:s|ed)? into (a )?definitive (agreement|merger)|business combination( agreement)?|amalgamation agreement|plan of merger)\b/i,
   mnaWillAcquire: /\b(will|to)\s+acquire\b|\bto be acquired\b/i,
@@ -259,11 +282,15 @@ const PAT = {
 
   // Partnerships / contracts
   partnershipAny:
-    /\b(partner(ship)?|strategic (?:alliance|partnership)|collaborat(?:e|ion)|distribution|licen[cs]e|supply|integration|deployment)\b/i,
+    /\b(partner(?:ship)?|strategic (?:alliance|partnership)|joint venture|JV|collaborat(?:e|ion)|co[- ]develop|co[- ]produce|distribution|licen[cs]e|supply|integration|deployment)\b/i,
   dealSigned:
     /\b(signed|signs|inks?|enter(?:s|ed)? into)\b.*\b(agreement|deal|contract|MOU|memorandum of understanding)\b/i,
   contractAny:
-    /\b(contract|award|task order|IDIQ|grant|funding|purchase order|PO)\b/i,
+    /\b(contract|award|task order|IDIQ|grant|funding|purchase order|PO|framework agreement|letter of award|LOA)\b/i,
+  preferredVendor: /\b(preferred (vendor|supplier|partner)|approved vendor)\b/i,
+  pilotAny:
+    /\b(pilot|pilot program|trial deployment|proof[- ]of[- ]concept|POC)\b/i,
+
   govWords:
     /\b(NASA|USSF|Space Force|DoD|Department of Defense|Army|Navy|Air Force|DARPA|BARDA|HHS|NIH|CMS|Medicare|VA)\b/i,
   govEquity:
@@ -277,7 +304,7 @@ const PAT = {
 
   // Reimbursement / policy tailwinds
   reimbursementWin:
-    /\b(CMS|Medicare)\b.*\b(NTAP|new (technology|tech) add[- ]on payment|transitional pass[- ]through|TPT|HCPCS(?:\s*code)?\s*[A-Z0-9]+)\b/i,
+    /\b(CMS|Medicare)\b.*\b(NTAP|new (technology|tech) add[- ]on payment|transitional pass[- ]through|TPT|HCPCS(?:\s*code)?\s*[A-Z0-9]+|reimbursement (?:increase|raised|higher|set at))\b/i,
 
   indexInclusion:
     /\b(added|to be added|to join|inclusion|included)\b.*\b(Russell\s?(2000|3000)|MSCI|S&P\s?(500|400|600)|S&P Dow Jones Indices|FTSE|Nasdaq[- ]?100)\b/i,
@@ -286,7 +313,7 @@ const PAT = {
   listingCompliance:
     /\b(regain(?:ed|s)?|returns? to|back in)\b.*\b(compliance)\b.*\b(Nasdaq|NYSE|listing)\b/i,
 
-  // Special cash dividend with explicit amount
+  // Special cash dividend
   specialDividend:
     /\b(special (cash )?dividend)\b.*\$\s?\d+(?:\.\d+)?\s*(?:per|\/)\s*share|\b(special (cash )?dividend of)\s*\$\s?\d+(?:\.\d+)?\b/i,
 
@@ -298,7 +325,7 @@ const PAT = {
   memeOrInfluencer:
     /\b(Roaring Kitty|Keith Gill|meme stock|wallstreetbets|WSB|Jensen Huang|Nvidia (blog|mention))\b/i,
 
-  // Name-drop only context (explicitly *not* partnerships)
+  // Name-drop only (explicitly not partnerships)
   nameDropContext:
     /\b(mention(?:ed)?|blog|keynote|showcase|featured|ecosystem|catalog|marketplace|listing)\b/i,
 
@@ -316,7 +343,7 @@ const PAT = {
   investorConfs:
     /\b(participat(e|es|ing)|to participate|will participate)\b.*\b(investor (?:conference|conferences)|conference|fireside chat|non-deal roadshow)\b/i,
 
-  // Misinformation / unauthorized PR guard
+  // Misinformation guard
   misinfo:
     /\b(misinformation|unauthorized (press )?release|retracts? (?:a )?press release|clarif(?:y|ies) misinformation)\b/i,
 
@@ -349,7 +376,11 @@ const PAT = {
   cryptoTreasuryDiscuss:
     /\b(treasury|reserve|policy|program|strategy)\b.*\b(discuss(?:ions?)?|approached|proposal|term sheet|non[- ]binding|indicative)\b.*\b(\$?\d+(?:\.\d+)?\s*(?:million|billion|bn|mm|m))\b/i,
   cryptoTreasuryInitiate:
-    /\b(launch(?:es|ed)?|initiat(?:es|ed|ing)|adopt(?:s|ed|ing)|establish(?:es|ed|ing)|implement(?:s|ed|ing)|convert(?:s|ed|ing) (?:a |portion of )?cash (?:to|into))\b[^.]{0,100}\b(Bitcoin|BTC)\b[^.]{0,100}\b(treasury|reserve)\b[^.]{0,100}\b(strategy|program|policy|framework|asset)\b/i,
+    /\b(launch(?:es|ed)?|initiat(?:es|ed|ing)|adopt(?:s|ed|ing)|establish(?:es|ed|ing)|implement(?:s|ed|ing)|convert(?:s|ed|ing)\s+(?:a |portion of )?cash\s+(?:to|into))\b[^.]{0,120}\b(Bitcoin|BTC)\b[^.]{0,120}\b(treasury|reserve)\b[^.]{0,120}\b(strategy|program|policy|framework|asset)\b/i,
+
+  // Informational: patent grants (low impact)
+  patentGrant:
+    /\b(U\.?S\.?|US)\s+patent\b.*\b(grant(?:ed)?|issued?|notice of allowance)\b/i,
 };
 
 const LARGE_DOLLARS = /\$?\s?(?:\d{2,4})\s*(?:million|billion|bn|mm|m)\b/i;
@@ -401,47 +432,44 @@ function classifyOne(it: RawItem): { event: HighImpactEvent; score: number } {
 
   // Bio / regulatory (wire preferred)
   if (isPR) {
-    // Approvals incl. CE Mark / De Novo
     push(
       PAT.approval.test(x) || PAT.ceMark.test(x),
       "FDA_MARKETING_AUTH",
       10,
       "approval"
     );
-    // AdCom
     push(PAT.adcom.test(x), "FDA_ADCOM_POSITIVE", 8, "adcom_positive");
-    // Pivotal/topline/mid-stage wins
     push(
       PAT.pivotal.test(x) || PAT.topline.test(x) || PAT.midStageWin.test(x),
       "PIVOTAL_TRIAL_SUCCESS",
       9,
       "pivotal_topline_or_midstage"
     );
-    // Designations
     push(PAT.designation.test(x), "REGULATORY_DESIGNATION", 6, "designation");
   }
-  // NDA/BLA acceptance / Priority Review (often off-wire too)
+  // Process catalysts
   push(
     PAT.ndaAcceptOrPriority.test(x),
     "PIVOTAL_TRIAL_SUCCESS",
     6,
     "nda_accept_or_priority_review"
   );
-  // Clinical hold lift
   push(PAT.clinicalHoldLift.test(x), "PIVOTAL_TRIAL_SUCCESS", 6, "hold_lift");
 
-  // Strong preclinical / cell model signals (can be off-wire)
+  // Strong preclinical / cell model
   if (PAT.preclinNHP.test(x))
     push(true, "PIVOTAL_TRIAL_SUCCESS", 6, "preclinical_nhp_strong");
-  if (PAT.cellModelEarly.test(x)) {
-    const w = HOT_DISEASE_RX.test(x) ? 6 : 5;
-    push(true, "PIVOTAL_TRIAL_SUCCESS", w, "cell_model_early_signal");
-  }
-  // “Single pivotal pathway” booster
+  if (PAT.cellModelEarly.test(x))
+    push(
+      true,
+      "PIVOTAL_TRIAL_SUCCESS",
+      HOT_DISEASE_RX.test(x) ? 6 : 5,
+      "cell_model_early_signal"
+    );
   if (PAT.singlePivotalPathway.test(x))
     push(true, "PIVOTAL_TRIAL_SUCCESS", 5, "single_pivotal_pathway");
 
-  // M&A: allow off-wire if definitive language + per-share/valuation present
+  // M&A
   {
     const binding =
       PAT.mnaBinding.test(x) ||
@@ -458,18 +486,21 @@ function classifyOne(it: RawItem): { event: HighImpactEvent; score: number } {
     if (nonbind || admin || asset) push(true, "OTHER", 2, "mna_low_impact");
   }
 
-  // Gov / partnerships (Tier-1 can pass off-wire if “powered by/adopts/integrates/selects”)
+  // Gov / partnerships (Tier-1 can pass off-wire with action verbs)
   {
     const govContract = PAT.govWords.test(x) && PAT.contractAny.test(x);
     const govEquity = PAT.govEquity.test(x);
+
+    // Expanded Tier-1 verbs (includes invests/strategic investment)
     const verbsTier1 =
-      /\b(powered by|built (?:on|with)|integrat(?:es|ed)? with|adopt(?:s|ed)|selects?|standardiz(?:es|ed) on|deploys?|rolls out)\b/i;
+      /\b(powered by|built (?:on|with)|integrat(?:es|ed)? with|adopt(?:s|ed)|selects?|standardiz(?:es|ed) on|deploys?|rolls out|invests? in|makes? (?:a )?strategic investment in)\b/i;
 
     const isPartnership =
       PAT.partnershipAny.test(x) ||
       PAT.contractAny.test(x) ||
       PAT.dealSigned.test(x) ||
-      (TIER1_RX.test(x) && verbsTier1.test(x));
+      PAT.preferredVendor.test(x) ||
+      (TIER1_RX.test(x) && (verbsTier1.test(x) || PAT.pilotAny.test(x)));
 
     const hasTier1 = TIER1_RX.test(x);
     const hasScale = LARGE_DOLLARS.test(x) || SCALE.test(x);
@@ -497,12 +528,9 @@ function classifyOne(it: RawItem): { event: HighImpactEvent; score: number } {
   // Corporate (earnings require beat/raise OR big KPI spike)
   {
     const beatOrGuide = PAT.earningsBeatGuideUp.test(x);
-    const resultsBlob = PAT.financialResultsOnly.test(x);
     const bigKPI = swingToProfit(x) || hasBigPercentGrowth(x);
-
-    // Fire if: beat/guide OR big KPI spike (even without explicit "financial results")
     push(
-      beatOrGuide || bigKPI || (resultsBlob && bigKPI),
+      beatOrGuide || bigKPI,
       "EARNINGS_BEAT_OR_GUIDE_UP",
       beatOrGuide ? 6 : 5,
       beatOrGuide ? "earnings" : "kpi_spike"
@@ -519,7 +547,7 @@ function classifyOne(it: RawItem): { event: HighImpactEvent; score: number } {
     );
   }
 
-  // Reimbursement / policy tailwinds
+  // Reimbursement / policy
   push(
     PAT.reimbursementWin.test(x),
     "POLICY_OR_POLITICS_TAILWIND",
@@ -527,7 +555,7 @@ function classifyOne(it: RawItem): { event: HighImpactEvent; score: number } {
     "reimbursement_win"
   );
 
-  // Special cash dividend (explicit per-share amount)
+  // Special dividend
   if (PAT.specialDividend.test(x))
     push(true, "RESTRUCTURING_OR_FINANCING", 7, "special_dividend");
 
@@ -556,15 +584,8 @@ function classifyOne(it: RawItem): { event: HighImpactEvent; score: number } {
   if (PAT.antiDilutionPositive.test(x))
     push(true, "RESTRUCTURING_OR_FINANCING", 7, "anti_dilution_positive");
 
-  // Generic results suppression (no beat/raise/outcome)
-  if (
-    PAT.financialResultsOnly.test(x) &&
-    !PAT.earningsBeatGuideUp.test(x) &&
-    !swingToProfit(x) &&
-    !hasBigPercentGrowth(x)
-  ) {
-    hits.push({ label: "OTHER", w: -4, why: "generic_fin_results_only" });
-  }
+  // Informational only: patent grants (kept low)
+  if (PAT.patentGrant.test(x)) push(true, "OTHER", 1, "patent_grant_info");
 
   if (!hits.length) return { event: "OTHER", score: 0 };
 
@@ -576,7 +597,6 @@ function classifyOne(it: RawItem): { event: HighImpactEvent; score: number } {
   if (by.has("PIVOTAL_TRIAL_SUCCESS") && by.has("FDA_MARKETING_AUTH"))
     by.set("FDA_MARKETING_AUTH", (by.get("FDA_MARKETING_AUTH") ?? 0) + 3);
 
-  // Big scale money + Tier1/gov/eq → amplify (mild)
   const hasScaleMoney = LARGE_DOLLARS.test(x) || SCALE.test(x);
   if (
     (by.has("TIER1_PARTNERSHIP") ||
@@ -601,7 +621,6 @@ function classifyOne(it: RawItem): { event: HighImpactEvent; score: number } {
   const top = [...by.entries()].sort((a, b) => b[1] - a[1])[0];
   const event = top ? (top[0] as HighImpactEvent) : "OTHER";
   const score = top ? top[1] : 0;
-
   return { event, score };
 }
 
