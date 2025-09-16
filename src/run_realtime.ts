@@ -6,16 +6,13 @@ import { fetchAllProviders } from "./providers/index.js";
 import { classify } from "./pipeline/classify.js";
 import { score } from "./pipeline/score.js";
 import { PolygonFeed } from "./marketdata/polygon.js"; // ✅ Polygon feed
-import { onAgg, setRef, getConfirm } from "./pipeline/priceConfirm.js";
-import { simulateEntry } from "./strategy/entry.js";
-import { Simulator } from "./sim/simulator.js";
 import { log } from "./logger.js";
 import { notifyDiscord } from "./notify/discord.js";
 import { isExchangeOk } from "./providers/fmp.js";
 import { hasVeryUnusualVolume } from "./providers/polygon.js";
+import { runLlmCheck } from "./pipeline/llmCheck.js";
 
 const nowIso = () => new Date().toISOString();
-const pct = (x: number) => (x * 100).toFixed(2) + "%";
 
 // ---- Preconditions / config echo ----
 if (!cfg.POLYGON_API_KEY) {
@@ -36,14 +33,11 @@ log.info("[BOOT] cadence:", {
 
 // ---- State ----
 const eventDb = new EventDB(cfg.DB_PATH);
-const simulator = new Simulator();
 const watchlist = new Set<string>();
 
 // visibility & liveness
 let lastNewsRun = 0;
 let lastBarAt = 0;
-let barCount = 0;
-let simEntryCount = 0;
 
 // Where to dump “backtest” fills continuously
 const CSV_PATH = path.resolve(
@@ -84,6 +78,7 @@ async function newsCycle() {
     });
 
     for (const item of passed) {
+      // Symbol check
       const symbol = item.symbols?.[0];
       if (!symbol) {
         log.warn("[NEWS] skip (no symbol)", {
@@ -92,8 +87,8 @@ async function newsCycle() {
         continue;
       }
 
+      // Exchange check (e.g. skip OTC)
       const passed = await isExchangeOk(symbol);
-
       if (!passed) {
         log.info("[FMP] skip (exchange check failed)", {
           symbol,
@@ -110,6 +105,38 @@ async function newsCycle() {
       //   });
       //   continue;
       // }
+
+      // --- Collect LLM fields in outer scope ---
+      let blurb = "";
+      let details = "";
+      let strengthBucket = "";
+      let confEmoji = "";
+      let confLevel = "low"; // <-- keep this outside try/catch
+      let estBucket = "";
+      let p50 = "";
+      let p90 = "";
+
+      try {
+        const out = await runLlmCheck(item);
+        blurb = out.blurb;
+        details = out.details;
+        strengthBucket = out.strengthBucket; // e.g., "🔥 VERY STRONG (72%)"
+        confEmoji = out.confidenceEmoji; // 🟢/🟠/🟡
+        confLevel = out.est?.confidence ?? "low";
+        if (out.est) {
+          estBucket = out.est.expected_move.bucket; // e.g., "150-300%"
+          p50 = `${Math.round(out.est.expected_move.p50)}%`;
+          p90 = `${Math.round(out.est.expected_move.p90)}%`;
+        }
+        log.info("[LLM] estimation", {
+          symbol,
+          bucket: estBucket || "n/a",
+          strength: out.est?.catalyst_strength ?? null,
+          confidence: confLevel,
+        });
+      } catch (e) {
+        log.warn("[LLM] error", e);
+      }
 
       const hash = eventDb.makeHash({
         title: item.title,
@@ -134,11 +161,33 @@ async function newsCycle() {
       });
 
       // Discord alert for the news itself
-      await notifyDiscord(
-        `📰 **NEWS** ${symbol} — ${item.klass} (score=${item.score.toFixed(
-          2
-        )})\n${item.title}\n${item.url || ""}`
+      // --- Beautiful Discord message ---
+      const lines: string[] = [];
+      lines.push(
+        `**📰 NEWS | ${symbol}** — *${
+          item.klass
+        }*  *(score=${item.score.toFixed(2)})*`
       );
+      lines.push(`**${item.title ?? ""}**`);
+      if (item.url) lines.push(item.url);
+
+      // Quick take paragraph
+      if (blurb) lines.push(`\n> ${blurb}`);
+
+      // LLM + stock details block
+      const llmLine = estBucket
+        ? `**🎯 Move**: \`${estBucket}\`  •  **p50**: \`${p50}\`  •  **p90**: \`${p90}\`\n**🧪 Strength**: ${strengthBucket}  •  **Confidence**: ${confEmoji} ${confLevel}`
+        : `**🎯 Move**: \`n/a\`\n**🧪 Strength**: ${
+            strengthBucket || "n/a"
+          }  •  **Confidence**: ${confEmoji || "🟡"} ${confLevel}`;
+
+      lines.push("\n" + llmLine);
+
+      // Stock basics (cap/price/etc.)
+      if (details) lines.push("\n" + details);
+
+      // Final notify
+      await notifyDiscord(lines.join("\n"));
     }
   } catch (err) {
     log.error("newsCycle error:", err);
@@ -151,85 +200,6 @@ async function newsCycle() {
 // ---- Market data feed (Polygon) ----
 const feed = new PolygonFeed(cfg.POLYGON_API_KEY);
 
-// Detailed bar logging (first N, then sampled)
-const LOG_EVERY_BAR = false; // set true if you want every bar
-const SAMPLE_EVERY_N_BARS = 30; // heartbeat rate when LOG_EVERY_BAR is false
-
-feed.on("agg1m", async (bar) => {
-  lastBarAt = Date.now();
-  barCount += 1;
-
-  // Log first few bars and then a periodic heartbeat
-  if (LOG_EVERY_BAR || barCount <= 3 || barCount % SAMPLE_EVERY_N_BARS === 0) {
-    log.info("[BAR]", {
-      sym: bar.symbol,
-      t: new Date(bar.startTimestamp).toISOString(),
-      o: bar.open,
-      h: bar.high,
-      l: bar.low,
-      c: bar.close,
-      v: bar.volume,
-    });
-  }
-
-  // Update rolling stats and reference (used by confirm gate)
-  onAgg(bar.symbol, bar.close, bar.volume);
-  setRef(bar.symbol, bar.open); // (first time seen in session)
-
-  if (!watchlist.has(bar.symbol)) return;
-
-  const conf = getConfirm(bar.symbol, bar.close);
-
-  // Log confirm metrics anytime symbol is under watch
-  log.info("[CONFIRM]", {
-    sym: bar.symbol,
-    price: bar.close,
-    volZ: conf.volZ.toFixed(2),
-    ret1m: pct(conf.ret1m),
-    vwapDev: pct(conf.vwapDev),
-    pass: conf.pass,
-    thresholds: {
-      VOL_Z_MIN: cfg.VOL_Z_MIN,
-      RET_1M_MIN: cfg.RET_1M_MIN,
-      VWAP_DEV_MIN: cfg.VWAP_DEV_MIN,
-    },
-  });
-
-  if (!conf.pass) return;
-
-  const order = simulateEntry(bar.symbol, bar.close, bar.startTimestamp);
-  if (order.qty <= 0) {
-    log.warn("[SIM-ENTRY] no size (qty<=0), removing from watchlist", {
-      sym: bar.symbol,
-    });
-    watchlist.delete(bar.symbol);
-    return;
-  }
-
-  simulator.fill(order);
-  simEntryCount += 1;
-
-  log.info("[SIM-ENTRY]", {
-    sym: bar.symbol,
-    qty: order.qty,
-    px: order.px,
-    volZ: conf.volZ.toFixed(2),
-    ret1m: pct(conf.ret1m),
-    vwapDev: pct(conf.vwapDev),
-    simEntryCount,
-  });
-
-  await notifyDiscord(
-    `🟢 **SIM ENTRY** ${bar.symbol} qty=${order.qty} @ ${order.px.toFixed(
-      2
-    )} | ` +
-      `volZ=${conf.volZ.toFixed(2)} ret1m=${(conf.ret1m * 100).toFixed(1)}%`
-  );
-
-  // Avoid multiple entries on the same headline
-  watchlist.delete(bar.symbol);
-});
-
 // Polygon status frames: {ev:"status", message/status:string}
 feed.on("status", (s: any) => {
   const msg =
@@ -237,19 +207,6 @@ feed.on("status", (s: any) => {
   log.info("[WS-STATUS]", msg);
 });
 feed.on("error", (e) => log.error("[WS-ERROR]", e));
-
-// Periodically flush fills to CSV (continuous “backtest” record)
-setInterval(() => {
-  try {
-    simulator.dumpCSV(CSV_PATH);
-    log.info("[CSV] flushed fills", {
-      path: CSV_PATH,
-      totalFills: simulator.fills.length,
-    });
-  } catch (e) {
-    log.warn("[CSV] flush error", e);
-  }
-}, 60_000);
 
 // Liveness: warn if connected but not receiving bars (useful during RTH)
 setInterval(() => {

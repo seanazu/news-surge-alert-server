@@ -6,6 +6,7 @@ const EnvSchema = z.object({
   NEWS_LOOKBACK_MINUTES: z.coerce.number().optional(),
   MARKETAUX_API_KEY: z.string().optional(),
   FMP_API_KEY: z.string().optional(),
+  OPENAI_API_KEY: z.string().optional(),
   POLYGON_API_KEY: z.string().optional(),
   BENZINGA_API_KEY: z.string().optional(),
   DISCORD_BOT_TOKEN: z.string().optional(),
