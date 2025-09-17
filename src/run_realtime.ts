@@ -116,28 +116,6 @@ async function newsCycle() {
       let p50 = "";
       let p90 = "";
 
-      try {
-        const out = await runLlmCheck(item);
-        blurb = out.blurb;
-        details = out.details;
-        strengthBucket = out.strengthBucket; // e.g., "🔥 VERY STRONG (72%)"
-        confEmoji = out.confidenceEmoji; // 🟢/🟠/🟡
-        confLevel = out.est?.confidence ?? "low";
-        if (out.est) {
-          estBucket = out.est.expected_move.bucket; // e.g., "150-300%"
-          p50 = `${Math.round(out.est.expected_move.p50)}%`;
-          p90 = `${Math.round(out.est.expected_move.p90)}%`;
-        }
-        log.info("[LLM] estimation", {
-          symbol,
-          bucket: estBucket || "n/a",
-          strength: out.est?.catalyst_strength ?? null,
-          confidence: confLevel,
-        });
-      } catch (e) {
-        log.warn("[LLM] error", e);
-      }
-
       const hash = eventDb.makeHash({
         title: item.title,
         url: item.url,
@@ -159,6 +137,28 @@ async function newsCycle() {
         title: item.title?.slice(0, 140),
         url: item.url || "",
       });
+
+      try {
+        const out = await runLlmCheck(item);
+        blurb = out.blurb;
+        details = out.details;
+        strengthBucket = out.strengthBucket; // e.g., "🔥 VERY STRONG (72%)"
+        confEmoji = out.confidenceEmoji; // 🟢/🟠/🟡
+        confLevel = out.est?.confidence ?? "low";
+        if (out.est) {
+          estBucket = out.est.expected_move.bucket; // e.g., "150-300%"
+          p50 = `${Math.round(out.est.expected_move.p50)}%`;
+          p90 = `${Math.round(out.est.expected_move.p90)}%`;
+        }
+        log.info("[LLM] estimation", {
+          symbol,
+          bucket: estBucket || "n/a",
+          strength: out.est?.catalyst_strength ?? null,
+          confidence: confLevel,
+        });
+      } catch (e) {
+        log.warn("[LLM] error", e);
+      }
 
       // Discord alert for the news itself
       // --- Beautiful Discord message ---
