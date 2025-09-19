@@ -237,7 +237,7 @@ const swingToProfit = (x: string) =>
     x
   );
 
-/* ---------- Patterns ---------- */
+/* ---------- Patterns (expanded) ---------- */
 const PAT = {
   // Bio / clinical (registrational / topline / mid-stage)
   pivotal:
@@ -249,15 +249,14 @@ const PAT = {
   adcom:
     /\b(advisory (committee|panel)|adcom)\b.*\b(vote|voted|recommends?)\b/i,
 
-  // Approvals (US/EU/JP variants)
+  // Approvals (expanded agencies)
   approval:
-    /\b(FDA|EMA|EC|MHRA|PMDA)\b.*\b(approved?|approval|authorized|authori[sz]ation|clearance|clears|EUA|510\(k\)|De\s?Novo)\b/i,
-  ceMark:
-    /\b(CE[- ]?mark(?:ing)?|CE[- ]?certificate)\b.*\b(approval|approved|granted|obtained)\b/i,
+    /\b(FDA|EMA|EC|MHRA|PMDA|NMPA|CFDA|ANVISA|Health Canada|HC|TGA|MFDS|CDSCO|SAHPRA)\b.*\b(approved?|approval|authorized|authori[sz]ation|clearance|clears|EUA|510\(k\)|De\s?Novo|IDE (?:approval|approved))\b/i,
+  ukca: /\bukca\b.*\b(mark|certification|certificate)\b.*\b(approval|approved|granted|obtained)\b/i,
   designation:
-    /\b(breakthrough therapy|BTD|fast[- ]track|orphan (drug )?designation|PRIME|RMAT)\b/i,
+    /\b(breakthrough (?:therapy|device)|BTD|fast[- ]track|orphan (drug )?designation|PRIME|RMAT)\b/i,
   ndaAcceptOrPriority:
-    /\b(FDA|EMA|MHRA|PMDA)\b.*\b(accepts?|accepted)\b.*\b(NDA|BLA|MAA)\b|\b(priority review)\b/i,
+    /\b(FDA|EMA|MHRA|PMDA|NMPA|ANVISA|Health Canada|HC|TGA)\b.*\b(accepts?|accepted)\b.*\b(NDA|BLA|MAA)\b|\b(priority review)\b/i,
   clinicalHoldLift:
     /\b(FDA)\b.*\b(lifts?|lifted|removes?|removed)\b.*\b(clinical hold)\b/i,
 
@@ -269,7 +268,7 @@ const PAT = {
   singlePivotalPathway:
     /\b(single)\s+(pivotal)\b.*\b(phase\s*(iii|3)|trial|pathway)\b/i,
 
-  // M&A (binding allowed off-wire if definitive language + per-share/valuation present)
+  // M&A (expanded)
   mnaBinding:
     /\b(definitive (agreement|merger)|merger agreement (executed|signed)|enter(?:s|ed)? into (a )?definitive (agreement|merger)|business combination( agreement)?|amalgamation agreement|plan of merger)\b/i,
   mnaWillAcquire: /\b(will|to)\s+acquire\b|\bto be acquired\b/i,
@@ -278,7 +277,15 @@ const PAT = {
   mnaNonBinding: /\b(non[- ]binding|indicative|letter of intent|LOI)\b/i,
   mnaAdminOnly: /\b(extend(s|ed|ing)?|extension)\b.*\b(tender offer|offer)\b/i,
   mnaAssetOrProperty:
-    /\b(divestiture|asset sale|dispos(?:e|al)|acquisition of (?:property|facility|real estate|inpatient rehabilitation))\b/i,
+    /\b(divestiture|divests?|carve[- ]?out|spin[- ]?off|dispos(?:e|es|ed|al)|asset(?:s)?\s+(?:sale|disposition|purchase)|(?:completes?|closes?)\s+(?:the\s+)?(?:sale|disposition)\s+of|sale\s+of\s+(?:subsidiary|business|unit|division|assets?))\b/i,
+  mnaUnsolicitedProposal:
+    /\b(unsolicited|non[- ]binding|indicative)\b.*\b(proposal|offer)\b.*(?:\$\s?\d+(?:\.\d+)?\s*(?:per|\/)\s*share|valu(?:e|ed)\s+at\s+\$?\d+(?:\.\d+)?\s*(?:million|billion|bn|mm|m))\b/i,
+  mnaPremiumMention:
+    /\brepresent(?:s|ed)?\s+(?:an?\s+)?(\d{2,3})\s?%\s+premium\b/i,
+
+  // Spin-offs / distributions
+  spinOffDist:
+    /\b(spin[- ]?off|separation|separate[sd]?|split[- ]?off)\b.*\b(record date|distribution date|when[- ]issued|Form\s*10)\b/i,
 
   // Partnerships / contracts
   partnershipAny:
@@ -292,9 +299,11 @@ const PAT = {
     /\b(pilot|pilot program|trial deployment|proof[- ]of[- ]concept|POC)\b/i,
 
   govWords:
-    /\b(NASA|USSF|Space Force|DoD|Department of Defense|Army|Navy|Air Force|DARPA|BARDA|HHS|NIH|CMS|Medicare|VA)\b/i,
+    /\b(NASA|USSF|Space Force|DoD|Department of Defense|Army|Navy|Air Force|DARPA|BARDA|HHS|NIH|CMS|Medicare|VA|DOE|Department of Energy|Loan Programs Office|LPO|MoD|Ministry of Defence|NHS|European Commission|NIST|NSF)\b/i,
   govEquity:
-    /\b(?:government|DoD|Department of Defense|HHS|BARDA)\b.*\b(preferred (stock|equity)|equity|investment|warrants?)\b/i,
+    /\b(?:government|DoD|Department of Defense|HHS|BARDA|DOE|Department of Energy)\b.*\b(preferred (stock|equity)|equity|investment|warrants?)\b/i,
+  govLoan:
+    /\b(Department of Energy|DOE|Loan Programs Office|LPO)\b.*\b(loan|conditional commitment)\b.*\$\s?\d+(?:\.\d+)?\s*(?:million|billion|bn|mm|m)\b/i,
 
   // Corporate (earnings etc.)
   earningsBeatGuideUp:
@@ -307,9 +316,9 @@ const PAT = {
     /\b(CMS|Medicare)\b.*\b(NTAP|new (technology|tech) add[- ]on payment|transitional pass[- ]through|TPT|HCPCS(?:\s*code)?\s*[A-Z0-9]+|reimbursement (?:increase|raised|higher|set at))\b/i,
 
   indexInclusion:
-    /\b(added|to be added|to join|inclusion|included)\b.*\b(Russell\s?(2000|3000)|MSCI|S&P\s?(500|400|600)|S&P Dow Jones Indices|FTSE|Nasdaq[- ]?100)\b/i,
+    /\b(added|to be added|to join|inclusion|included)\b.*\b(Russell\s?(2000|3000|Microcap)|MSCI|S&P\s?(500|400|600)|S&P\/TSX(?:\sComposite)?|S&P Dow Jones Indices|FTSE)\b/i,
   uplist:
-    /\b(uplisting|uplist|approved to list)\b.*\b(Nasdaq|NYSE|NYSE American)\b/i,
+    /\b(uplisting|uplist|approved to list|approved for listing|to list on)\b.*\b(Nasdaq|NYSE|NYSE American)\b/i,
   listingCompliance:
     /\b(regain(?:ed|s)?|returns? to|back in)\b.*\b(compliance)\b.*\b(Nasdaq|NYSE|listing)\b/i,
 
@@ -317,9 +326,19 @@ const PAT = {
   specialDividend:
     /\b(special (cash )?dividend)\b.*\$\s?\d+(?:\.\d+)?\s*(?:per|\/)\s*share|\b(special (cash )?dividend of)\s*\$\s?\d+(?:\.\d+)?\b/i,
 
+  // Buybacks / tenders / debt actions / bankruptcy exit
+  buyback:
+    /\b(share repurchase|buyback|issuer tender offer|dutch auction)\b.*\b(authorized|authorization|increase|announc(?:es|ed)|commence(?:s|d)|launch(?:es|ed))\b/i,
+  debtReduce:
+    /\b(redeem(?:s|ed|ing)?|retire(?:s|d|ment)|repay(?:s|ment|s|ed)|extinguish(?:es|ment))\b.*\b(debt|notes?|debentures|convertible (?:notes|debentures)|term loan|credit facility)\b/i,
+  ch11Exit:
+    /\b(emerges?|emergence)\b.*\b(chapter\s*11|bankruptcy)\b|\b(plan of reorganization)\b.*\b(confirm(?:ed|ation))\b/i,
+
   // Legal / meme
   courtWin:
     /\b(court|judge|ITC|PTAB)\b.*\b(grants?|wins?|injunction|vacates?|stays?|exclusion order)\b/i,
+  courtDismiss:
+    /\b(dismiss(?:es|ed|al)|with prejudice|case (?:is|was)?\s*dismissed)\b/i,
   legalSettlementRoyalties:
     /\b(settlement|settles)\b.*\b(royalt(?:y|ies)|minimum payments?|licensing revenue|lump[- ]sum)\b/i,
   memeOrInfluencer:
@@ -358,6 +377,8 @@ const PAT = {
   // Misc noise parity
   strategicAlts:
     /\b(explore|evaluat(?:e|ing)|commence(?:s|d)?)\b.*\b(strategic alternatives|strategic review)\b/i,
+  strategicAltsOutcome:
+    /\b(concludes?|concluded|completed|complete[s]?)\b.*\b(strategic alternatives|strategic review)\b.*\b(with|result(?:ed|s)? in)\b.*\b(sale|merger|business combination|divestiture)\b/i,
   conferenceOnly:
     /\b(presents?|to present|poster|abstract|oral presentation|fireside chat|non-deal roadshow|conference|corporate update)\b/i,
   upcomingOnly:
@@ -381,6 +402,15 @@ const PAT = {
   // Informational: patent grants (low impact)
   patentGrant:
     /\b(U\.?S\.?|US)\s+patent\b.*\b(grant(?:ed)?|issued?|notice of allowance)\b/i,
+
+  // IPO patterns
+  ipoPrice: /\b(prices?|priced)\b.*\b(initial public offering|IPO)\b/i,
+  ipoBeginTrade:
+    /\b(begins?|commences?)\s+trading\b.*\b(Nasdaq|NYSE|NYSE American)\b/i,
+
+  // Noise guard: name/ticker change
+  nameTickerChange:
+    /\b(renam(?:e|ed|es)|name change|changes? (its )?name|ticker (?:symbol )?chang(?:e|es|ed)|to trade under)\b/i,
 };
 
 const LARGE_DOLLARS = /\$?\s?(?:\d{2,4})\s*(?:million|billion|bn|mm|m)\b/i;
@@ -399,6 +429,7 @@ function classifyOne(it: RawItem): { event: HighImpactEvent; score: number } {
   if (PAT.misinfo.test(x)) return { event: "OTHER", score: 0 };
   if (PAT.securityIncidentUpdate.test(x)) return { event: "OTHER", score: 0 };
   if (PAT.awardsPR.test(x)) return { event: "OTHER", score: 0 };
+  if (PAT.nameTickerChange.test(x)) return { event: "OTHER", score: 0 };
   if (
     (PAT.proxyAdvisor.test(x) || PAT.voteAdminOnly.test(x)) &&
     !PAT.mnaBinding.test(x)
@@ -433,7 +464,7 @@ function classifyOne(it: RawItem): { event: HighImpactEvent; score: number } {
   // Bio / regulatory (wire preferred)
   if (isPR) {
     push(
-      PAT.approval.test(x) || PAT.ceMark.test(x),
+      PAT.approval.test(x) || PAT.ukca.test(x),
       "FDA_MARKETING_AUTH",
       10,
       "approval"
@@ -477,23 +508,47 @@ function classifyOne(it: RawItem): { event: HighImpactEvent; score: number } {
     const nonbind = PAT.mnaNonBinding.test(x);
     const admin = PAT.mnaAdminOnly.test(x);
     const asset = PAT.mnaAssetOrProperty.test(x);
+    const unsolicited = PAT.mnaUnsolicitedProposal.test(x);
+    const hasPremium = PAT.mnaPremiumMention.test(x);
+
+    // Binding deals → high; unsolicited but priced → medium
     push(
       binding && !nonbind && !admin && !asset,
       "ACQUISITION_BUYOUT",
       9,
       "mna_binding"
     );
+    push(
+      unsolicited && !admin && !asset,
+      "ACQUISITION_BUYOUT",
+      6,
+      "mna_unsolicited_priced"
+    );
+
     if (nonbind || admin || asset) push(true, "OTHER", 2, "mna_low_impact");
+    // Strategic alternatives concluded with a sale
+    push(
+      PAT.strategicAltsOutcome.test(x),
+      "ACQUISITION_BUYOUT",
+      7,
+      "alts_concluded_sale"
+    );
+    if (hasPremium) push(true, "ACQUISITION_BUYOUT", 2, "premium_mention");
   }
+
+  // Spin-offs / distributions (often material)
+  if (PAT.spinOffDist.test(x))
+    push(true, "RESTRUCTURING_OR_FINANCING", 6, "spin_off_distribution");
 
   // Gov / partnerships (Tier-1 can pass off-wire with action verbs)
   {
     const govContract = PAT.govWords.test(x) && PAT.contractAny.test(x);
     const govEquity = PAT.govEquity.test(x);
+    const govLoan = PAT.govLoan.test(x);
 
-    // Expanded Tier-1 verbs (includes invests/strategic investment)
+    // Expanded Tier-1 verbs (includes invests/strategic investment and expansions)
     const verbsTier1 =
-      /\b(powered by|built (?:on|with)|integrat(?:es|ed)? with|adopt(?:s|ed)|selects?|standardiz(?:es|ed) on|deploys?|rolls out|invests? in|makes? (?:a )?strategic investment in)\b/i;
+      /\b(powered by|built (?:on|with)|integrat(?:es|ed)? with|adopt(?:s|ed)|selects?|standardiz(?:es|ed) on|deploys?|rolls out|invests? in|makes? (?:a )?strategic investment in|expands?|extends?|renews?)\b/i;
 
     const isPartnership =
       PAT.partnershipAny.test(x) ||
@@ -511,6 +566,7 @@ function classifyOne(it: RawItem): { event: HighImpactEvent; score: number } {
       push(true, "OTHER", 2, "gov_routine");
 
     push(govEquity, "GOVERNMENT_EQUITY_OR_GRANT", 9, "gov_equity");
+    push(govLoan, "MAJOR_GOV_CONTRACT", 8, "gov_loan");
 
     const nameDropOnly =
       hasTier1 && !isPartnership && PAT.nameDropContext.test(x);
@@ -559,8 +615,19 @@ function classifyOne(it: RawItem): { event: HighImpactEvent; score: number } {
   if (PAT.specialDividend.test(x))
     push(true, "RESTRUCTURING_OR_FINANCING", 7, "special_dividend");
 
+  // Buybacks / debt / ch11 exit
+  if (PAT.buyback.test(x)) {
+    const baseW = 6 + (LARGE_DOLLARS.test(x) ? 1 : 0);
+    push(true, "RESTRUCTURING_OR_FINANCING", baseW, "buyback_or_tender");
+  }
+  if (PAT.debtReduce.test(x))
+    push(true, "RESTRUCTURING_OR_FINANCING", 5, "debt_reduction");
+  if (PAT.ch11Exit.test(x))
+    push(true, "RESTRUCTURING_OR_FINANCING", 6, "chapter11_exit");
+
   // Legal / meme
   push(PAT.courtWin.test(x), "COURT_WIN_INJUNCTION", 6, "court");
+  push(PAT.courtDismiss.test(x), "COURT_WIN_INJUNCTION", 5, "court_dismissal");
   push(
     PAT.legalSettlementRoyalties.test(x),
     "COURT_WIN_INJUNCTION",
@@ -579,6 +646,19 @@ function classifyOne(it: RawItem): { event: HighImpactEvent; score: number } {
     const w = LARGE_DOLLARS.test(x) ? baseW + 1 : baseW;
     push(true, "RESTRUCTURING_OR_FINANCING", w, "crypto_treasury_initiate");
   }
+
+  // PRV grant / PRV sale
+  if (/\b(priority review voucher|PRV)\b/i.test(x)) {
+    const isGrant = /\b(granted|awarded|receives?)\b/i.test(x);
+    const isSale =
+      /\b(sell|sold|sale)\b/i.test(x) && LARGE_DOLLARS.test(x ?? "");
+    if (isGrant) push(true, "REGULATORY_DESIGNATION", 6, "prv_grant");
+    if (isSale) push(true, "RESTRUCTURING_OR_FINANCING", 7, "prv_sale");
+  }
+
+  // IPO
+  if (isPR && (PAT.ipoPrice.test(x) || PAT.ipoBeginTrade.test(x)))
+    push(true, "IPO_DEBUT_POP", 6, "ipo");
 
   // Positive financing exception (terminate/withdraw/reduce offering)
   if (PAT.antiDilutionPositive.test(x))

@@ -14,7 +14,7 @@ const BASELINE: Record<string, number> = {
   IPO_DEBUT_POP: 0.55,
   COURT_WIN_INJUNCTION: 0.56,
   MEME_OR_INFLUENCER: 0.5,
-  RESTRUCTURING_OR_FINANCING: 0.5, // crypto treasury bumps handled below
+  RESTRUCTURING_OR_FINANCING: 0.5, // spin-offs / PRV sale / crypto treasury / buybacks get handled below
   POLICY_OR_POLITICS_TAILWIND: 0.44,
   EARNINGS_BEAT_OR_GUIDE_UP: 0.52,
   INDEX_INCLUSION: 0.5,
@@ -56,7 +56,7 @@ function isWirePR(url?: string, text?: string): boolean {
   return WIRE_TOKENS.some((tok) => t.includes(tok.toLowerCase()));
 }
 
-/** Hardened low-impact guards */
+/** Hardened low-impact guards (noise) */
 const RX_PROXY_ADVISOR =
   /\b(ISS|Institutional Shareholder Services|Glass Lewis)\b.*\b(recommend(s|ed)?|support(s|ed)?)\b.*\b(vote|proposal|deal|merger)\b/i;
 const RX_VOTE_ADMIN_ONLY =
@@ -68,8 +68,11 @@ const RX_SECURITY_UPDATE =
 const RX_INVESTOR_CONFS =
   /\b(participat(e|es|ing)|to participate|will participate)\b.*\b(investor (?:conference|conferences)|conference|fireside chat|non-deal roadshow)\b/i;
 const RX_AWARDS =
-  /\b(award|awards|winner|wins|finalist|recipient|honoree|recognized|recognition|named (?:as|to) (?:the )?(?:list|index|ranking)|anniversary|celebrat(es|ing|ion)|Respect the Drive)\b/i;
+  /\b(award|awards|winner|wins|finalist|recipient|honoree|recognized|recognition|named (?:as|to) (?:the )?(?:list|index|ranking)|anniversary|celebrat(es|ing|ion))\b/i;
+const RX_NAME_TICKER_CHANGE =
+  /\b(renam(?:e|ed|es)|name change|changes? (its )?name|ticker (?:symbol )?chang(?:e|es|ed)|to trade under)\b/i;
 
+/** Results and earnings */
 const RX_FIN_RESULTS =
   /\b(financial results|first quarter|second quarter|third quarter|fourth quarter|first half|second half|H1|H2|fiscal (?:Q\d|year) results)\b/i;
 const RX_EARNINGS_BEAT =
@@ -84,7 +87,7 @@ const RX_TOPLINE_STRONG =
 
 /** Regulatory variants & process */
 const RX_CE_MARK =
-  /\b(CE[- ]mark|CE[- ]marking|CE[- ]certificate)\b.*\b(approval|approved|granted|obtained)\b/i;
+  /\b(CE[- ]mark(?:ing)?|CE[- ]certificate)\b.*\b(approval|approved|granted|obtained)\b/i;
 const RX_510K = /\b(FDA)\b.*\b(510\(k\)|510k)\b.*\b(clearance|clears?)\b/i;
 const RX_SUPPLEMENTAL =
   /\b(expanded indication|label (expansion|extension)|supplemental (s?NDA|s?BLA)|sNDA|sBLA)\b/i;
@@ -95,9 +98,9 @@ const RX_JOURNAL =
 const RX_CONFERENCE =
   /\b(presents?|presented|to present|poster|abstract|oral presentation)\b.*\b(conference|congress|symposium|meeting)\b/i;
 
-/** New: NDA/BLA acceptance / Priority Review + Clinical hold lift */
+/** Process: NDA/BLA acceptance / Priority Review + Clinical hold lift */
 const RX_NDA_ACCEPT_PRIORITY =
-  /\b(FDA|EMA|MHRA|PMDA)\b.*\b(accepts?|accepted)\b.*\b(NDA|BLA|MAA)\b|\b(priority review)\b/i;
+  /\b(FDA|EMA|MHRA|PMDA|NMPA|ANVISA|Health Canada|HC|TGA)\b.*\b(accepts?|accepted)\b.*\b(NDA|BLA|MAA)\b|\b(priority review)\b/i;
 const RX_CLINICAL_HOLD_LIFT =
   /\b(FDA)\b.*\b(lifts?|lifted|removes?|removed)\b.*\b(clinical hold)\b/i;
 
@@ -117,9 +120,15 @@ const RX_MNA_LOI_ANY = /\b(letter of intent|LOI|non[- ]binding|indicative)\b/i;
 const RX_MNA_ADMIN =
   /\b(extend(s|ed|ing)?|extension)\b.*\b(expiration|expiry)\b.*\b(tender offer|offer)\b/i;
 const RX_ASSET_SALE =
-  /\b(sell(?:s|ing)?|divest(?:s|iture|ing)|dispos(?:e|al))\b.*\b(stake|interest|asset|assets|business|subsidiary|equity position)\b/i;
+  /\b(divestiture|divests?|carve[- ]?out|spin[- ]?off|dispos(?:e|al|es|ed))\b.*\b(stake|interest|asset|assets|business|subsidiary|equity position)\b/i;
+const RX_ASSET_SALE_TITLELIKE =
+  /\b((completes?|closes?)\s+(the\s+)?(sale|disposition)\s+of|sale\s+of\s+(subsidiary|business|unit|division|assets?))\b/i;
 const RX_PROPERTY_ACQ =
-  /\b(acquires?|acquisition of)\b.*\b(property|properties|facility|facilities|building|real estate|inpatient rehabilitation facility|IRF)\b/i;
+  /\b(acquires?|acquisition of)\b.*\b(property|properties|facility|facilities|building|real estate|inpatient rehabilitation)\b/i;
+const RX_MNA_PREMIUM_MENTION =
+  /\brepresent(?:s|ed)?\s+(\d{2,3})\s?%\s+premium\b/i;
+const RX_MNA_UNSOL_PRICED =
+  /\b(unsolicited|non[- ]binding|indicative)\b.*\b(proposal|offer)\b.*(?:\$\s?\d+(?:\.\d+)?\s*(?:per|\/)\s*share|valu(?:e|ed)\s+at\s+\$?\d+(?:\.\d+)?\s*(?:million|billion|bn|mm|m))\b/i;
 
 /** Financing (bearish) + exceptions */
 const RX_SHELF_ATM =
@@ -140,7 +149,6 @@ const RX_CRYPTO_TREASURY_BUY =
   /\b(buy|bought|purchase[sd]?|acquire[sd]?)\b.*\b(Bitcoin|BTC|Ethereum|ETH|Solana|SOL|LINK|Chainlink|crypto(?:currency)?|tokens?)\b/i;
 const RX_CRYPTO_TREASURY_DISCUSS =
   /\b(treasury|reserve|policy|program|strategy)\b.*\b(discuss(?:ions?)?|approached|proposal|term sheet|non[- ]binding|indicative)\b.*\b(\$?\d+(?:\.\d+)?\s*(?:million|billion|bn|mm|m))\b/i;
-/** New: “launch/adopt/initiate/implement/convert cash to” BTC treasury program */
 const RX_CRYPTO_TREASURY_INITIATE =
   /\b(launch(?:es|ed)?|initiat(?:es|ed|ing)|adopt(?:s|ed|ing)|establish(?:es|ed|ing)|implement(?:s|ed|ing)|convert(?:s|ed|ing)\s+(?:a |portion of )?cash\s+(?:to|into))\b[^.]{0,120}\b(Bitcoin|BTC)\b[^.]{0,120}\b(treasury|reserve)\b[^.]{0,120}\b(strategy|program|policy|framework|asset)\b/i;
 
@@ -151,7 +159,7 @@ const RX_REIMBURSEMENT =
 /** Index inclusion (major vs minor) */
 const RX_INDEX_MAJOR = /\b(S&P\s?(500|400|600)|MSCI|FTSE|Nasdaq[- ]?100)\b/i;
 const RX_INDEX_MINOR =
-  /\b(Russell\s?(2000|3000)|S&P\/?TSX Composite|TSX Composite|TSX Venture|TSXV|CSE Composite)\b/i;
+  /\b(Russell\s?(2000|3000|Microcap)|S&P\/?TSX(?:\sComposite)?|TSX Composite|TSX Venture|TSXV|CSE Composite)\b/i;
 
 /** Other ≤5% cohort noise */
 const RX_ANALYST =
@@ -159,25 +167,27 @@ const RX_ANALYST =
 const RX_MEDIA_INTERVIEW =
   /\b(says|tells|told|said)\b.*\b(CNBC|Yahoo Finance|Bloomberg|Fox Business|Barron'?s)\b/i;
 const RX_BUYBACK_DIV =
-  /\b(share repurchase|buyback|dividend (declaration|increase|initiation))\b/i;
+  /\b(share repurchase|buyback|issuer tender offer|dutch auction|dividend (declaration|increase|initiation))\b/i;
 
-// Strategic alternatives
+/** Strategic alternatives */
 const RX_STRAT_ALTS =
   /\b(strategic alternatives?|exploring (alternatives|options)|review of strategic alternatives|considering strategic alternatives)\b/i;
+const RX_STRAT_ALTS_OUTCOME =
+  /\b(concludes?|concluded|completed|complete[s]?)\b.*\b(strategic alternatives|strategic review)\b.*\b(with|result(?:ed|s)? in)\b.*\b(sale|merger|business combination|divestiture)\b/i;
 
-// Tier-1 powered-by verbs and Tier-1 names
+/** Tier-1 powered-by verbs and Tier-1 names */
 const RX_TIER1_VERBS =
-  /\b(powered by|built (?:on|with)|integrat(?:es|ed)? with|adopt(?:s|ed)|selects?|standardiz(?:es|ed) on|deploys?|rolls out)\b/i;
+  /\b(powered by|built (?:on|with)|integrat(?:es|ed)? with|adopt(?:s|ed)|selects?|standardiz(?:es|ed) on|deploys?|rolls out|invests? in|makes? (?:a )?strategic investment in|expands?|extends?|renews?)\b/i;
 const TIER1_RX = new RegExp(
   "\\b(?:Nvidia|Microsoft|OpenAI|Apple|Amazon|AWS|Google|Alphabet|Meta|Facebook|Tesla|Oracle|Salesforce|Adobe|IBM|Intel|AMD|Broadcom|Qualcomm|TSMC|Samsung|Cisco|Dell|HPE|Supermicro|Snowflake|Palantir|Siemens|Sony|Workday|ServiceNow|Shopify|Twilio|Atlassian|Zoom|Datadog|CrowdStrike|Okta|MongoDB|Cloudflare|Stripe|Block|Square|Walmart|Target|Costco|Home Depot|Lowe's|Best Buy|Alibaba|Tencent|JD.com|ByteDance|TikTok|Lockheed Martin|Raytheon|RTX|Boeing|Northrop Grumman|General Dynamics|L3Harris|BAE Systems|Thales|Airbus|SpaceX|NASA|Space Force|USSF|DARPA|Department of Defense|DoD|Army|Navy|Air Force|Pfizer|Merck|Johnson & Johnson|J&J|Bristol-Myers|BMS|Eli Lilly|Lilly|Sanofi|GSK|AstraZeneca|Novo Nordisk|Roche|Novartis|Bayer|Amgen|AbbVie|Takeda|Gilead|Biogen|Regeneron|Medtronic|Boston Scientific|Abbott|GE Healthcare|Philips|Siemens Healthineers|Intuitive Surgical|BARDA|HHS|NIH|CMS|Medicare|VA|FDA|EMA|EC|MHRA|PMDA|ExxonMobil|Chevron|BP|Shell|TotalEnergies|Schlumberger|Halliburton|Caterpillar|Deere|GE|Honeywell)(?:'s)?\\b",
   "i"
 );
 
-// Listing compliance regained
+/** Listing compliance regained */
 const RX_LISTING_COMPLIANCE =
   /\b(regain(?:ed|s)?|returns? to|back in)\b.*\b(compliance)\b.*\b(Nasdaq|NYSE|listing)\b/i;
 
-// Preclinical signals
+/** Preclinical signals */
 const RX_PRECLIN_NHP =
   /\b(non[- ]?human|nonhuman)\s+primate[s]?\b.*\b(well tolerated|tolerability|safety|safe)\b.*\b(higher than|exceed(?:s|ed)|above)\b.*\b(efficacious|effective)\b/i;
 const RX_CELL_MODEL =
@@ -185,11 +195,11 @@ const RX_CELL_MODEL =
 const RX_HOT_DISEASE =
   /\b(Alzheimer'?s|ALS|Parkinson'?s|Huntington'?s|multiple sclerosis|MS\b|glioblastoma|GBM|pancreatic cancer)\b/i;
 
-// Special dividend (explicit amount)
+/** Special dividend (explicit amount) */
 const RX_SPECIAL_DIVIDEND =
   /\b(special (cash )?dividend)\b.*\$\s?\d+(?:\.\d+)?\s*(?:per|\/)\s*share|\b(special (cash )?dividend of)\s*\$\s?\d+(?:\.\d+)?\b/i;
 
-// Misinformation / unauthorized PR
+/** Misinformation / unauthorized PR */
 const RX_MISINFO =
   /\b(misinformation|unauthorized (press )?release|retracts? (?:a )?press release|clarif(?:y|ies) misinformation)\b/i;
 
@@ -197,6 +207,24 @@ const RX_MISINFO =
 const RX_PURCHASE_ORDER = /\b(purchase order|PO)\b/i;
 const RX_LEGAL_SETTLEMENT_ROYALTIES =
   /\b(settlement|settles)\b.*\b(royalt(?:y|ies)|minimum payments?|licensing revenue|lump[- ]sum)\b/i;
+
+/** Spin-offs / distributions (record & distribution dates / Form 10) */
+const RX_SPINOFF_DIST =
+  /\b(spin[- ]?off|separation|separate[sd]?|split[- ]?off)\b.*\b(record date|distribution date|when[- ]issued|Form\s*10)\b/i;
+
+/** PRV grant / PRV sale */
+const RX_PRV = /\b(priority review voucher|PRV)\b/i;
+const RX_PRV_GRANT = /\b(granted|awarded|receives?)\b/i;
+const RX_PRV_SALE = /\b(sell|sold|sale)\b/i;
+
+/** DOE/LPO loan (gov loans with big $ amounts) */
+const RX_GOV_LOAN =
+  /\b(Department of Energy|DOE|Loan Programs Office|LPO)\b.*\b(loan|conditional commitment)\b/i;
+
+/** IPO pricing / first-day trading */
+const RX_IPO_PRICE = /\b(prices?|priced)\b.*\b(initial public offering|IPO)\b/i;
+const RX_IPO_BEGIN_TRADE =
+  /\b(begins?|commences?)\s+trading\b.*\b(Nasdaq|NYSE|NYSE American)\b/i;
 
 export function score(items: ClassifiedItem[]): ClassifiedItem[] {
   return items.map((it) => {
@@ -218,6 +246,7 @@ export function score(items: ClassifiedItem[]): ClassifiedItem[] {
     if (RX_AWARDS.test(blob)) s = Math.min(s, 0.18);
     if (RX_SECURITY_UPDATE.test(blob)) s = Math.min(s, 0.16);
     if (RX_INVESTOR_CONFS.test(blob)) s = Math.min(s, 0.16);
+    if (RX_NAME_TICKER_CHANGE.test(blob)) s = Math.min(s, 0.16);
 
     // Generic ≤5% noise caps
     if (RX_ANALYST.test(blob) || RX_MEDIA_INTERVIEW.test(blob))
@@ -279,7 +308,7 @@ export function score(items: ClassifiedItem[]): ClassifiedItem[] {
       if (RX_CONFERENCE.test(blob)) s = Math.min(s, 0.38);
     }
 
-    // 7) M&A specifics — allow off-wire definitive
+    // 7) M&A specifics — allow off-wire definitive; handle unsolicited priced proposals & premiums
     if (String(it.klass) === "ACQUISITION_BUYOUT") {
       const definitive =
         RX_MNA_DEFINITIVE.test(blob) ||
@@ -290,20 +319,36 @@ export function score(items: ClassifiedItem[]): ClassifiedItem[] {
       if (RX_MNA_CASHSTOCK.test(blob)) s += 0.02;
       if (RX_MNA_PERPRICE.test(blob)) s += 0.02;
 
+      // Unsolicited but priced offers still pop sometimes
+      if (RX_MNA_UNSOL_PRICED.test(blob)) s += 0.06;
+
+      const prem = blob.match(RX_MNA_PREMIUM_MENTION);
+      if (prem && Number(prem[1]) >= 40) s += 0.04;
+
+      // Admin / asset/property → cap
       if (RX_MNA_LOI_ANY.test(blob)) s -= 0.06;
       if (RX_MNA_ADMIN.test(blob)) s = Math.min(s, 0.4);
-      if (RX_ASSET_SALE.test(blob) || RX_PROPERTY_ACQ.test(blob))
+      if (
+        RX_ASSET_SALE.test(blob) ||
+        RX_ASSET_SALE_TITLELIKE.test(blob) ||
+        RX_PROPERTY_ACQ.test(blob)
+      )
         s = Math.min(s, 0.4);
+
+      // Strategic alternatives concluded with sale/merger/divestiture
+      if (RX_STRAT_ALTS_OUTCOME.test(blob)) s += 0.06;
     }
 
-    // 8) Gov contracts: routine follow-on cap
-    if (
-      String(it.klass) === "MAJOR_GOV_CONTRACT" &&
-      /\b(continued production|follow[- ]on|followon|option (exercise|exercised)|extension|renewal)\b/i.test(
-        blob
+    // 8) Gov contracts: routine follow-on cap + DOE/LPO loan boost
+    if (String(it.klass) === "MAJOR_GOV_CONTRACT") {
+      if (
+        /\b(continued production|follow[- ]on|followon|option (exercise|exercised)|extension|renewal)\b/i.test(
+          blob
+        )
       )
-    )
-      s = Math.min(s, 0.48);
+        s = Math.min(s, 0.48);
+      if (RX_GOV_LOAN.test(blob) && LARGE_DOLLAR_AMOUNT.test(blob)) s += 0.08;
+    }
 
     // 9) Index inclusion: major vs minor
     if (String(it.klass) === "INDEX_INCLUSION") {
@@ -363,7 +408,7 @@ export function score(items: ClassifiedItem[]): ClassifiedItem[] {
       s += 0.06;
     }
 
-    // 13) Index + Uplist wire small bump handled above; add listing compliance bump
+    // 13) Listing compliance bump
     if (RX_LISTING_COMPLIANCE.test(blob)) s += 0.12;
 
     // 14) Earnings: generic results cap unless beat/raise OR strong exceptions
@@ -387,8 +432,7 @@ export function score(items: ClassifiedItem[]): ClassifiedItem[] {
     if (RX_ANTI_DILUTION_POS.test(blob)) s += 0.12;
 
     // 16) Special cash dividend (explicit amount)
-    const isSpecialDiv = RX_SPECIAL_DIVIDEND.test(blob);
-    if (isSpecialDiv) s += 0.14;
+    if (isSpecialDividend) s += 0.14;
 
     // 17) Legal settlement with royalties / minimum payments (often needle-moving for micros)
     if (
@@ -406,7 +450,44 @@ export function score(items: ClassifiedItem[]): ClassifiedItem[] {
       if (LARGE_DOLLAR_AMOUNT.test(blob) || TIER1_RX.test(blob)) s += 0.04;
     }
 
-    // 19) Generic boosters
+    // 19) Spin-offs / distributions (often material unlocks)
+    if (label === "RESTRUCTURING_OR_FINANCING" && RX_SPINOFF_DIST.test(blob)) {
+      s += 0.12;
+    }
+
+    // 20) PRV grant / PRV sale
+    if (RX_PRV.test(blob)) {
+      if (RX_PRV_GRANT.test(blob)) s += 0.08; // designation-like
+      if (RX_PRV_SALE.test(blob) && LARGE_DOLLAR_AMOUNT.test(blob)) s += 0.12; // sale monetization
+    }
+
+    // 21) IPO pricing / begin trading (only from wire or issuer IR)
+    if (String(it.klass) === "IPO_DEBUT_POP") {
+      if (RX_IPO_PRICE.test(blob) || RX_IPO_BEGIN_TRADE.test(blob)) {
+        if (isWire) s += 0.06;
+        else s = Math.min(s, 0.48);
+      }
+    }
+
+    // 22) Buybacks / debt reduction / Ch.11 exit
+    if (label === "RESTRUCTURING_OR_FINANCING") {
+      if (RX_BUYBACK_DIV.test(blob)) {
+        const buybackHit =
+          /\b(share repurchase|buyback|issuer tender offer|dutch auction)\b/i.test(
+            blob
+          );
+        if (buybackHit) s += 0.08 + (LARGE_DOLLAR_AMOUNT.test(blob) ? 0.02 : 0);
+      }
+      if (RX_FINANCING_GOING.test(blob)) s += 0.08; // debt extinguished / going-concern removed
+      if (
+        /\b(emerges?|emergence)\b.*\b(chapter\s*11|bankruptcy)\b|\b(plan of reorganization)\b.*\b(confirm(?:ed|ation))\b/i.test(
+          blob
+        )
+      )
+        s += 0.1;
+    }
+
+    // 23) Generic boosters
     const isSmallCap =
       (it.marketCap ?? 0) > 0 && (it.marketCap as number) < 1_000_000_000; // <$1B
     if (isSmallCap) s += 0.14;
